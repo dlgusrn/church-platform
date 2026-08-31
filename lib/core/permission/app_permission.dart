@@ -1,0 +1,60 @@
+enum AppPermission {
+  liveAccess('live.access'),
+  vodView('vod.view'),
+  mediaVideoView('media.video.view'),
+  mediaVideoDownload('media.video.download'),
+  mediaAudioView('media.audio.view'),
+  mediaAudioDownload('media.audio.download'),
+  noticeView('notice.view'),
+  noticeCreate('notice.create'),
+  noticeUpdate('notice.update'),
+  noticeDelete('notice.delete'),
+  scheduleView('schedule.view'),
+  scheduleManage('schedule.manage'),
+  expenseView('expense.view'),
+  expenseCreate('expense.create'),
+  expenseUpdate('expense.update'),
+  expenseApprove('expense.approve'),
+  approvalView('approval.view'),
+  approvalCreate('approval.create'),
+  approvalApprove('approval.approve'),
+  attendanceView('attendance.view'),
+  attendanceManage('attendance.manage'),
+  documentView('document.view'),
+  documentCreate('document.create'),
+  documentManage('document.manage'),
+  memberView('member.view'),
+  memberManage('member.manage'),
+  roleView('role.view'),
+  roleManage('role.manage'),
+  permissionManage('permission.manage'),
+  churchManage('church.manage');
+
+  const AppPermission(this.code);
+  final String code;
+}
+
+const videoNavigationPermissions = {
+  AppPermission.vodView,
+  AppPermission.mediaVideoView,
+};
+const workNavigationPermissions = {
+  AppPermission.noticeView,
+  AppPermission.noticeCreate,
+  AppPermission.noticeUpdate,
+  AppPermission.noticeDelete,
+  AppPermission.scheduleView,
+  AppPermission.scheduleManage,
+  AppPermission.expenseView,
+  AppPermission.expenseCreate,
+  AppPermission.expenseUpdate,
+  AppPermission.expenseApprove,
+  AppPermission.approvalView,
+  AppPermission.approvalCreate,
+  AppPermission.approvalApprove,
+  AppPermission.attendanceView,
+  AppPermission.attendanceManage,
+  AppPermission.documentView,
+  AppPermission.documentCreate,
+  AppPermission.documentManage,
+};
