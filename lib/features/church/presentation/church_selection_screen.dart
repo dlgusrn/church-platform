@@ -32,7 +32,7 @@ class ChurchSelectionScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text('${user.name}님, 이용할 교회를 선택해주세요.'),
               const SizedBox(height: 28),
-              ...user.memberships.map(
+              ...user.approvedMemberships.map(
                 (membership) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: Material(

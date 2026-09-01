@@ -1,8 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../church/presentation/membership_admin_screen.dart';
+import '../../church/presentation/membership_status_screen.dart';
+import '../../church/presentation/membership_status_view.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -10,8 +14,8 @@ class MoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final membership = state.activeMembership!;
-    final canSwitch = state.currentUser!.memberships.length > 1;
+    final membership = state.currentChurchMembership!;
+    final canSwitch = state.approvedMemberships.length > 1;
     final permissions = state.effectivePermissions.toList()
       ..sort((a, b) => a.code.compareTo(b.code));
     return Scaffold(
@@ -47,7 +51,7 @@ class MoreScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${membership.church.name} · ${membership.roleName}',
+                          '${membership.church.name} · ${membership.isApproved ? membership.roleName : membership.status.label}',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
@@ -57,8 +61,29 @@ class MoreScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          ListTile(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MembershipStatusScreen(),
+              ),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            tileColor: AppTheme.surface,
+            leading: const Icon(
+              Icons.how_to_reg_outlined,
+              color: AppTheme.primary,
+            ),
+            title: const Text(
+              '교회 가입 현황',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+          ),
           if (canSwitch) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             ListTile(
               onTap: state.requestChurchSelection,
               shape: RoundedRectangleBorder(
@@ -76,76 +101,74 @@ class MoreScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
             ),
           ],
-          const SizedBox(height: 28),
-          Text(
-            '현재 Effective Permission',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 10),
-          if (permissions.isEmpty)
-          const Text('현재 기본 기능만 이용 중입니다.', style: TextStyle(color: AppTheme.muted))
-          else
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: [
-                for (final permission in permissions)
-                  Chip(
-                    label: Text(
-                      permission.code,
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    side: BorderSide.none,
-                    backgroundColor: AppTheme.surface,
-                  ),
-              ],
+          if (kDebugMode) ...[
+            const SizedBox(height: 28),
+            Text('개발 도구', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 10),
+            ListTile(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const MembershipAdminScreen(),
+                ),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              tileColor: const Color(0xFFF0F3F2),
+              leading: const Icon(
+                Icons.admin_panel_settings_outlined,
+                color: AppTheme.primary,
+              ),
+              title: const Text(
+                'Mock 가입 승인 관리',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
             ),
-          const SizedBox(height: 28),
-          Text(
-            '실행 중 권한 변경 테스트',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            '서버에서 권한이 갱신된 상황을 시뮬레이션합니다.',
-            style: TextStyle(color: AppTheme.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            title: const Text('vod.view 임시 추가'),
-            value: state.has(AppPermission.vodView),
-            onChanged:
-                membership.effectivePermissions.contains(AppPermission.vodView)
-                ? null
-                : (_) => state.toggleRuntimePermission(AppPermission.vodView),
-          ),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            title: const Text('media.audio.view 임시 추가'),
-            value: state.has(AppPermission.mediaAudioView),
-            onChanged:
-                membership.effectivePermissions.contains(
-                  AppPermission.mediaAudioView,
-                )
-                ? null
-                : (_) => state.toggleRuntimePermission(
-                    AppPermission.mediaAudioView,
-                  ),
-          ),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            title: const Text('notice.view 임시 추가'),
-            value: state.has(AppPermission.noticeView),
-            onChanged:
-                membership.effectivePermissions.contains(
-                  AppPermission.noticeView,
-                )
-                ? null
-                : (_) =>
-                      state.toggleRuntimePermission(AppPermission.noticeView),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 22),
+            Text(
+              '현재 Effective Permission',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            if (permissions.isEmpty)
+              const Text(
+                '현재 기본 기능만 이용 중입니다.',
+                style: TextStyle(color: AppTheme.muted),
+              )
+            else
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  for (final permission in permissions)
+                    Chip(
+                      label: Text(
+                        permission.code,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      side: BorderSide.none,
+                      backgroundColor: AppTheme.surface,
+                    ),
+                ],
+              ),
+            if (membership.isApproved) ...[
+              const SizedBox(height: 22),
+              Text(
+                '실행 중 권한 변경 테스트',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                '서버에서 권한이 갱신된 상황을 시뮬레이션합니다.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+              _PermissionSwitch(permission: AppPermission.vodView),
+              _PermissionSwitch(permission: AppPermission.mediaAudioView),
+              _PermissionSwitch(permission: AppPermission.noticeView),
+            ],
+          ],
+          const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: state.signOut,
             style: OutlinedButton.styleFrom(
@@ -161,6 +184,26 @@ class MoreScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PermissionSwitch extends StatelessWidget {
+  const _PermissionSwitch({required this.permission});
+  final AppPermission permission;
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final baseHas = state.activeMembership!.effectivePermissions.contains(
+      permission,
+    );
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      title: Text('${permission.code} 임시 추가'),
+      value: state.has(permission),
+      onChanged: baseHas
+          ? null
+          : (_) => state.toggleRuntimePermission(permission),
     );
   }
 }

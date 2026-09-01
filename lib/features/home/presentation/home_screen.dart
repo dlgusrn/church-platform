@@ -27,7 +27,7 @@ class HomeScreen extends StatelessWidget {
                       Expanded(
                         child: InkWell(
                           borderRadius: BorderRadius.circular(10),
-                          onTap: state.currentUser!.memberships.length > 1
+                          onTap: state.approvedMemberships.length > 1
                               ? state.requestChurchSelection
                               : null,
                           child: Padding(
@@ -37,13 +37,13 @@ class HomeScreen extends StatelessWidget {
                               children: [
                                 Flexible(
                                   child: Text(
-                                    state.activeMembership!.church.name,
+                                    state.currentChurchMembership!.church.name,
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleLarge,
                                   ),
                                 ),
-                                if (state.currentUser!.memberships.length > 1)
+                                if (state.approvedMemberships.length > 1)
                                   const Icon(Icons.keyboard_arrow_down_rounded),
                               ],
                             ),

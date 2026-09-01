@@ -1,69 +1,11 @@
-import '../../shared/models/church.dart';
 import '../../shared/models/user.dart';
-import '../permission/app_permission.dart';
+import '../mock/mock_app_data_store.dart';
 import 'auth_repository.dart';
 
 class MockAuthRepository implements AuthRepository {
-  static const _password = 'test1234';
-  static const _skyGate = Church(id: 'sky-gate', name: '하늘문교회');
-  static const _bethel = Church(id: 'bethel', name: '브엘성회');
-
-  late final List<AppUser> _users = [
-    const AppUser(
-      id: 'user-a',
-      name: '신규 가입자',
-      loginId: 'new@church.app',
-      memberships: [
-        ChurchMembership(church: _skyGate, roleName: '신규 회원'),
-        ChurchMembership(church: _bethel, roleName: '신규 회원'),
-      ],
-    ),
-    const AppUser(
-      id: 'user-b',
-      name: '일반 성도',
-      loginId: 'member@church.app',
-      memberships: [
-        ChurchMembership(
-          church: _skyGate,
-          roleName: '성도',
-          rolePermissions: {AppPermission.liveAccess, AppPermission.vodView},
-        ),
-      ],
-    ),
-    const AppUser(
-      id: 'user-c',
-      name: '직원 관리자',
-      loginId: 'staff@church.app',
-      memberships: [
-        ChurchMembership(
-          church: _skyGate,
-          roleName: '직원',
-          rolePermissions: {
-            AppPermission.liveAccess,
-            AppPermission.vodView,
-            AppPermission.mediaVideoView,
-            AppPermission.mediaVideoDownload,
-            AppPermission.mediaAudioView,
-            AppPermission.mediaAudioDownload,
-            AppPermission.noticeView,
-            AppPermission.noticeCreate,
-            AppPermission.scheduleView,
-            AppPermission.expenseView,
-            AppPermission.expenseCreate,
-            AppPermission.approvalView,
-            AppPermission.attendanceView,
-            AppPermission.documentView,
-            AppPermission.memberView,
-          },
-        ),
-        ChurchMembership(
-          church: _bethel,
-          roleName: '성도',
-          rolePermissions: {AppPermission.liveAccess, AppPermission.vodView},
-        ),
-      ],
-    ),
-  ];
+  MockAuthRepository([MockAppDataStore? store])
+    : store = store ?? MockAppDataStore();
+  final MockAppDataStore store;
 
   @override
   List<MockAccountHint> get accountHints => const [
@@ -90,14 +32,39 @@ class MockAuthRepository implements AuthRepository {
     required String password,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 350));
-    if (password != _password)
+    final normalized = loginId.trim().toLowerCase();
+    if (store.passwords[normalized] != password)
       throw const AuthException('아이디 또는 비밀번호를 확인해주세요.');
-    for (final user in _users) {
-      if (user.loginId.toLowerCase() == loginId.trim().toLowerCase())
-        return user;
+    for (final user in store.users) {
+      if (user.loginId.toLowerCase() == normalized) return user;
     }
     throw const AuthException('아이디 또는 비밀번호를 확인해주세요.');
   }
+
+  @override
+  Future<AppUser> register(RegisterRequest request) async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    final normalized = request.loginId.trim().toLowerCase();
+    if (request.name.trim().isEmpty ||
+        normalized.isEmpty ||
+        request.password.isEmpty) {
+      throw const AuthException('필수 가입 정보를 모두 입력해주세요.');
+    }
+    if (store.passwords.containsKey(normalized))
+      throw const AuthException('이미 가입된 이메일입니다.');
+    final user = AppUser(
+      id: 'user-${DateTime.now().microsecondsSinceEpoch}',
+      name: request.name.trim(),
+      loginId: normalized,
+      memberships: [],
+    );
+    store.users.add(user);
+    store.passwords[normalized] = request.password;
+    return user;
+  }
+
+  @override
+  Future<AppUser?> getUser(String userId) async => store.userById(userId);
 
   @override
   Future<void> signOut() async {}

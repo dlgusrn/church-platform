@@ -1,10 +1,6 @@
 # 교회 통합 모바일 앱
 
-Android/iOS용 Flutter 기반 교회 통합 앱의 1차 기반 구현입니다.
-
-> 현재 작업 환경은 `*.yaml` 생성을 금지합니다. 실행 전 보안 프로필에서 해당
-> 제한을 해제한 뒤 `pubspec.yaml.required.txt`를 `pubspec.yaml`로 복사하고
-> `flutter pub get`을 실행해야 합니다.
+Android/iOS용 Flutter 기반 교회 통합 앱의 인증·교회 Membership 기반 구현입니다.
 
 ## Mock 계정
 
@@ -27,3 +23,14 @@ Mock 방송 비밀번호는 `123456`입니다. 비밀번호 값과 검증은 UI�
 `AppState`는 로그인/로그아웃 및 교회 전환 때 Permission Context와 홈 데이터를
 함께 초기화합니다. 메뉴는 `NavigationPolicy.available`이 Effective Permission에
 따라 매번 생성하므로 고정 인덱스에 의존하지 않습니다.
+
+## Mock 회원가입과 승인
+
+로그인 화면의 회원가입에서 계정을 생성하고 Repository가 제공하는 교회 목록 중
+하나에 가입을 신청할 수 있습니다. 가입 신청은 Membership 단위로 `pending`,
+`approved`, `rejected` 상태를 가지며 pending 상태에서는 Role과 Permission이
+적용되지 않습니다.
+
+Debug 실행에서는 `더보기 → 개발 도구 → Mock 가입 승인 관리`에서 Role과 사용자별
+추가/제외 Permission을 선택해 승인하거나 거절할 수 있습니다. 로그인 화면의 Mock
+계정 목록과 관리자 도구, 실행 중 권한 변경 도구는 Release 빌드에 노출되지 않습니다.

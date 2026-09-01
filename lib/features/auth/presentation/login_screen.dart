@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../app/app_scope.dart';
 import '../../../app/app_state.dart';
 import '../../../core/theme/app_theme.dart';
+import 'sign_up_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -96,7 +98,11 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 TextButton(
-                  onPressed: () => _showNotReady(context),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SignUpScreen(),
+                    ),
+                  ),
                   child: const Text('회원가입'),
                 ),
                 const SizedBox(height: 14, child: VerticalDivider()),
@@ -106,55 +112,57 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 30),
-            const Divider(),
-            const SizedBox(height: 20),
-            const Text(
-              '개발용 Mock 계정',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              '계정을 누르면 입력됩니다. 공통 비밀번호: test1234',
-              style: TextStyle(fontSize: 12, color: AppTheme.muted),
-            ),
-            const SizedBox(height: 12),
-            ...state.authRepository.accountHints.map(
-              (account) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: OutlinedButton(
-                  onPressed: () {
-                    _loginIdController.text = account.loginId;
-                    _passwordController.text = 'test1234';
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.all(15),
-                    alignment: Alignment.centerLeft,
-                    side: const BorderSide(color: Color(0xFFE1E7E4)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+            if (kDebugMode) ...[
+              const SizedBox(height: 30),
+              const Divider(),
+              const SizedBox(height: 20),
+              const Text(
+                '개발용 Mock 계정',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '계정을 누르면 입력됩니다. 공통 비밀번호: test1234',
+                style: TextStyle(fontSize: 12, color: AppTheme.muted),
+              ),
+              const SizedBox(height: 12),
+              ...state.authRepository.accountHints.map(
+                (account) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: OutlinedButton(
+                    onPressed: () {
+                      _loginIdController.text = account.loginId;
+                      _passwordController.text = 'test1234';
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.all(15),
+                      alignment: Alignment.centerLeft,
+                      side: const BorderSide(color: Color(0xFFE1E7E4)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          account.label,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            account.label,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ),
-                      ),
-                      Text(
-                        account.description,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.muted,
+                        Text(
+                          account.description,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.muted,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(height: 18),
             Row(
               children: [
