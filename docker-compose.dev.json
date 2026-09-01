@@ -1,0 +1,43 @@
+{
+  "name": "church-app-dev",
+  "services": {
+    "mysql": {
+      "image": "mysql:8.4",
+      "container_name": "church-app-mysql-dev",
+      "restart": "unless-stopped",
+      "command": [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_0900_ai_ci",
+        "--default-time-zone=+00:00"
+      ],
+      "environment": {
+        "MYSQL_ROOT_PASSWORD": "${CHURCH_MYSQL_ROOT_PASSWORD:-church-root-dev-only}",
+        "MYSQL_DATABASE": "${CHURCH_MYSQL_DATABASE:-church_app}",
+        "MYSQL_USER": "${CHURCH_MYSQL_USER:-church_app}",
+        "MYSQL_PASSWORD": "${CHURCH_MYSQL_PASSWORD:-church-app-dev-only}",
+        "MYSQL_TEST_DATABASE": "${CHURCH_MYSQL_TEST_DATABASE:-church_app_test}",
+        "TZ": "UTC"
+      },
+      "ports": [
+        "${CHURCH_MYSQL_PORT:-3307}:3306"
+      ],
+      "volumes": [
+        "church_app_mysql_data:/var/lib/mysql",
+        "./backend/docker/mysql/init:/docker-entrypoint-initdb.d:ro"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"
+        ],
+        "interval": "5s",
+        "timeout": "5s",
+        "retries": 20,
+        "start_period": "20s"
+      }
+    }
+  },
+  "volumes": {
+    "church_app_mysql_data": {}
+  }
+}
