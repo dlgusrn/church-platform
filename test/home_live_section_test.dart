@@ -9,6 +9,7 @@ import 'package:church_app/features/home/data/mock_home_repository.dart';
 import 'package:church_app/features/home/domain/home_models.dart';
 import 'package:church_app/features/home/presentation/home_screen.dart';
 import 'package:church_app/features/live/data/mock_live_access_service.dart';
+import 'package:church_app/features/notices/data/mock_notice_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,6 +55,7 @@ Future<void> _pumpHome(WidgetTester tester, LiveBroadcast? live) async {
           roleRepository: MockRoleRepository(store),
           homeRepository: MockHomeRepository(),
           liveAccessService: MockLiveAccessService(),
+          noticeRepository: MockNoticeRepository(),
         )
         ..currentUser = user
         ..activeMembership = user.approvedMemberships.first

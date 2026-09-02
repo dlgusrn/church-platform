@@ -12,6 +12,7 @@ EXPECTED_TABLES = {
     "refresh_tokens",
     "worship_schedules",
     "live_broadcasts",
+    "notices",
 }
 
 

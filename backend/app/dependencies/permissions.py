@@ -44,6 +44,18 @@ ScheduleManagePermission = Annotated[
 LiveManagePermission = Annotated[
     None, Depends(require_church_permission(PermissionCode.LIVE_MANAGE))
 ]
+NoticeViewPermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.NOTICE_VIEW))
+]
+NoticeCreatePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.NOTICE_CREATE))
+]
+NoticeUpdatePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.NOTICE_UPDATE))
+]
+NoticeDeletePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.NOTICE_DELETE))
+]
 
 
 def require_approved_membership(

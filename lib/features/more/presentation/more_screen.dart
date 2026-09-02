@@ -10,6 +10,7 @@ import '../../church/presentation/membership_status_screen.dart';
 import '../../church/presentation/membership_status_view.dart';
 import '../../home/presentation/live_broadcast_admin_screen.dart';
 import '../../home/presentation/worship_schedule_admin_screen.dart';
+import '../../notices/presentation/notices_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -102,6 +103,16 @@ class MoreScreen extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+          if (state.has(AppPermission.noticeView)) ...[
+            const SizedBox(height: 10),
+            _ManagementTile(
+              icon: Icons.campaign_outlined,
+              title: '공지사항',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const NoticesScreen()),
+              ),
             ),
           ],
           if (state.hasAny({

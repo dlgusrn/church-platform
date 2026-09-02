@@ -19,6 +19,8 @@ import 'features/church/data/mock_membership_repository.dart';
 import 'features/home/data/mock_home_repository.dart';
 import 'features/home/data/api_home_repository.dart';
 import 'features/live/data/mock_live_access_service.dart';
+import 'features/notices/data/api_notice_repository.dart';
+import 'features/notices/data/mock_notice_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +34,7 @@ Future<void> main() async {
       roleRepository: MockRoleRepository(store),
       homeRepository: MockHomeRepository(),
       liveAccessService: MockLiveAccessService(),
+      noticeRepository: MockNoticeRepository(),
     );
   } else {
     Uri baseUri;
@@ -55,6 +58,7 @@ Future<void> main() async {
       roleRepository: ApiRoleRepository(client),
       homeRepository: ApiHomeRepository(client),
       liveAccessService: MockLiveAccessService(),
+      noticeRepository: ApiNoticeRepository(client),
     );
     client.onSessionExpired = appState.handleSessionExpired;
   }

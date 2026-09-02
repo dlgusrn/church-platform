@@ -8,6 +8,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.live_broadcast import LiveBroadcast
     from app.models.membership import ChurchMembership
+    from app.models.notice import Notice
     from app.models.role import Role
     from app.models.worship_schedule import WorshipSchedule
 
@@ -26,5 +27,8 @@ class Church(TimestampMixin, Base):
         back_populates="church", cascade="all, delete-orphan"
     )
     live_broadcasts: Mapped[list["LiveBroadcast"]] = relationship(
+        back_populates="church", cascade="all, delete-orphan"
+    )
+    notices: Mapped[list["Notice"]] = relationship(
         back_populates="church", cascade="all, delete-orphan"
     )

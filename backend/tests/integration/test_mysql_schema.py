@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "refresh_tokens",
     "worship_schedules",
     "live_broadcasts",
+    "notices",
 }
 
 EXPECTED_UNIQUE_COLUMNS = {
@@ -48,6 +49,10 @@ EXPECTED_FOREIGN_KEYS = {
     "refresh_tokens": {("user_id", "users")},
     "worship_schedules": {("church_id", "churches")},
     "live_broadcasts": {("church_id", "churches")},
+    "notices": {
+        ("church_id", "churches"),
+        ("author_membership_id", "church_memberships"),
+    },
 }
 
 EXPECTED_COLUMNS = {
@@ -60,11 +65,20 @@ EXPECTED_COLUMNS = {
         "status",
         "title_override",
     },
+    "notices": {
+        "church_id",
+        "author_membership_id",
+        "title",
+        "content",
+        "is_pinned",
+        "published_at",
+    },
 }
 
 REMOVED_COLUMNS = {
     "worship_schedules": {"name", "day_of_week", "start_time"},
     "live_broadcasts": {"worship_schedule_id"},
+    "notices": set(),
 }
 
 

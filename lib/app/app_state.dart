@@ -12,6 +12,8 @@ import '../features/church/data/membership_repository.dart';
 import '../features/home/data/home_repository.dart';
 import '../features/home/domain/home_models.dart';
 import '../features/live/data/live_access_service.dart';
+import '../features/notices/data/notice_repository.dart';
+import '../features/notices/domain/notice_models.dart';
 import '../shared/models/church.dart';
 import '../shared/models/user.dart';
 
@@ -33,6 +35,7 @@ class AppState extends ChangeNotifier {
     required this.roleRepository,
     required this.homeRepository,
     required this.liveAccessService,
+    required this.noticeRepository,
   });
 
   final AuthRepository authRepository;
@@ -41,6 +44,7 @@ class AppState extends ChangeNotifier {
   final RoleRepository roleRepository;
   final HomeRepository homeRepository;
   final LiveAccessService liveAccessService;
+  final NoticeRepository noticeRepository;
 
   AppSessionStatus status = AppSessionStatus.restoring;
   AppUser? currentUser;
@@ -319,6 +323,25 @@ class AppState extends ChangeNotifier {
     await reloadHome();
     return result;
   }
+
+  Future<List<Notice>> loadNotices() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null || !has(AppPermission.noticeView)) return const [];
+    return noticeRepository.listNotices(churchId);
+  }
+
+  Future<Notice> loadNotice(String noticeId) =>
+      noticeRepository.getNotice(activeMembership!.church.id, noticeId);
+
+  Future<Notice> saveNotice(NoticeDraft draft, {String? noticeId}) {
+    final churchId = activeMembership!.church.id;
+    return noticeId == null
+        ? noticeRepository.createNotice(churchId, draft)
+        : noticeRepository.updateNotice(churchId, noticeId, draft);
+  }
+
+  Future<void> deleteNotice(String noticeId) =>
+      noticeRepository.deleteNotice(activeMembership!.church.id, noticeId);
 
   void requestChurchSelection() {
     if (approvedMemberships.length > 1) {

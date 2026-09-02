@@ -6,6 +6,7 @@ from app.api.v1 import (
     health,
     live_broadcasts,
     memberships,
+    notices,
     users,
     worship_schedules,
 )
@@ -16,6 +17,11 @@ router.include_router(auth.router, prefix="/auth", tags=["auth"])
 router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(churches.router, prefix="/churches", tags=["churches"])
 router.include_router(memberships.router, prefix="/memberships", tags=["memberships"])
+router.include_router(
+    notices.router,
+    prefix="/churches/{church_id}/notices",
+    tags=["notices"],
+)
 router.include_router(
     worship_schedules.router,
     prefix="/churches/{church_id}/worship-schedules",

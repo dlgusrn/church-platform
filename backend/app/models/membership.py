@@ -10,6 +10,7 @@ from app.models.enums import MembershipStatus
 if TYPE_CHECKING:
     from app.models.church import Church
     from app.models.permission_override import MembershipPermissionOverride
+    from app.models.notice import Notice
     from app.models.role import Role
     from app.models.user import User
 
@@ -50,3 +51,4 @@ class ChurchMembership(TimestampMixin, Base):
     permission_overrides: Mapped[list["MembershipPermissionOverride"]] = relationship(
         back_populates="membership", cascade="all, delete-orphan"
     )
+    authored_notices: Mapped[list["Notice"]] = relationship(back_populates="author_membership")

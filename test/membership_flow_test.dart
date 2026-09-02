@@ -12,6 +12,7 @@ import 'package:church_app/features/church/data/mock_church_repository.dart';
 import 'package:church_app/features/church/data/mock_membership_repository.dart';
 import 'package:church_app/features/home/data/mock_home_repository.dart';
 import 'package:church_app/features/live/data/mock_live_access_service.dart';
+import 'package:church_app/features/notices/data/mock_notice_repository.dart';
 import 'package:church_app/features/more/presentation/more_screen.dart';
 import 'package:church_app/shared/models/user.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
       roleRepository: MockRoleRepository(store),
       homeRepository: MockHomeRepository(),
       liveAccessService: MockLiveAccessService(),
+      noticeRepository: MockNoticeRepository(),
     ),
   );
 }
@@ -218,6 +220,34 @@ void main() {
     fixture.state.toggleRuntimePermission(AppPermission.liveManage);
     await tester.pump();
     expect(find.text('LIVE 방송 관리'), findsNothing);
+  });
+
+  testWidgets('공지사항 메뉴는 notice.view 권한에 따라 노출된다', (tester) async {
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-c')!;
+    final membershipWithoutNoticeView = user.approvedMemberships.last;
+    expect(
+      membershipWithoutNoticeView.effectivePermissions.contains(
+        AppPermission.noticeView,
+      ),
+      isFalse,
+    );
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = membershipWithoutNoticeView
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: const MaterialApp(home: MoreScreen()),
+      ),
+    );
+    expect(find.text('공지사항'), findsNothing);
+
+    fixture.state.toggleRuntimePermission(AppPermission.noticeView);
+    await tester.pump();
+    expect(find.text('공지사항'), findsOneWidget);
   });
 
   test('Case 6: Role Permission에 추가와 제외를 반영한다', () async {

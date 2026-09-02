@@ -12,9 +12,11 @@ from app.core.database import get_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.church import Church
-from app.models.enums import MembershipStatus
+from app.models.enums import MembershipStatus, PermissionEffect
 from app.models.membership import ChurchMembership
+from app.models.notice import Notice
 from app.models.permission import Permission
+from app.models.permission_override import MembershipPermissionOverride
 from app.models.role import Role
 from app.models.user import User
 from app.scripts.seed_permissions import seed_permissions_and_roles
@@ -273,3 +275,127 @@ def test_live_manage_permission_seed_and_authorization(
     assert client.get(
         f"{url}/current", headers=live_scenario.headers(live_scenario.member)
     ).status_code == 200
+
+
+def test_notice_crud_sorting_permissions_isolation_and_server_author(
+    client: TestClient, mysql_session: Session, live_scenario: LiveScenario
+) -> None:
+    scenario = live_scenario
+    url = f"/api/v1/churches/{scenario.church.id}/notices"
+    admin_headers = scenario.headers(scenario.admin)
+    member_headers = scenario.headers(scenario.member)
+
+    for method, path, payload in (
+        ("get", url, None),
+        ("post", url, {"title": "공지", "content": "내용"}),
+        ("patch", f"{url}/999999", {"title": "수정"}),
+        ("delete", f"{url}/999999", None),
+    ):
+        request = getattr(client, method)
+        response = (
+            request(path, headers=member_headers)
+            if payload is None
+            else request(path, headers=member_headers, json=payload)
+        )
+        assert response.status_code == 403
+
+    blank_title = client.post(
+        url, headers=admin_headers, json={"title": "   ", "content": "내용"}
+    )
+    blank_content = client.post(
+        url, headers=admin_headers, json={"title": "제목", "content": "\n\t"}
+    )
+    assert blank_title.status_code == 422
+    assert blank_content.status_code == 422
+
+    spoofed_author = client.post(
+        url,
+        headers=admin_headers,
+        json={
+            "title": "일반 공지",
+            "content": "첫 공지 내용",
+            "author_membership_id": 999999,
+        },
+    )
+    assert spoofed_author.status_code == 422
+    created = client.post(
+        url,
+        headers=admin_headers,
+        json={"title": "일반 공지", "content": "첫 공지 내용"},
+    )
+    assert created.status_code == 201, created.text
+    created_json = created.json()
+    author_membership = mysql_session.scalar(
+        select(ChurchMembership).where(
+            ChurchMembership.user_id == scenario.admin.id,
+            ChurchMembership.church_id == scenario.church.id,
+        )
+    )
+    stored = mysql_session.get(Notice, created_json["id"])
+    assert author_membership is not None
+    assert stored is not None
+    assert stored.author_membership_id == author_membership.id
+
+    pinned = client.post(
+        url,
+        headers=admin_headers,
+        json={"title": "고정 공지", "content": "고정 내용", "is_pinned": True},
+    )
+    assert pinned.status_code == 201, pinned.text
+    newer_regular = client.post(
+        url,
+        headers=admin_headers,
+        json={"title": "새 일반 공지", "content": "새 일반 내용"},
+    )
+    assert newer_regular.status_code == 201, newer_regular.text
+    mysql_session.get(Notice, created_json["id"]).published_at = datetime(2026, 1, 1, tzinfo=UTC)
+    mysql_session.get(Notice, pinned.json()["id"]).published_at = datetime(2025, 1, 1, tzinfo=UTC)
+    mysql_session.get(Notice, newer_regular.json()["id"]).published_at = datetime(
+        2027, 1, 1, tzinfo=UTC
+    )
+    mysql_session.commit()
+
+    listed = client.get(url, headers=admin_headers)
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [
+        pinned.json()["id"],
+        newer_regular.json()["id"],
+        created_json["id"],
+    ]
+    detail = client.get(f"{url}/{created_json['id']}", headers=admin_headers)
+    assert detail.status_code == 200
+    assert detail.json()["content"] == "첫 공지 내용"
+
+    forbidden_update_fields = client.patch(
+        f"{url}/{created_json['id']}",
+        headers=admin_headers,
+        json={"title": "수정 공지", "is_pinned": True, "church_id": scenario.other_church.id},
+    )
+    assert forbidden_update_fields.status_code == 422
+    updated = client.patch(
+        f"{url}/{created_json['id']}",
+        headers=admin_headers,
+        json={"title": "수정 공지", "is_pinned": True},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "수정 공지"
+    assert updated.json()["church_id"] == scenario.church.id
+    assert client.delete(f"{url}/{created_json['id']}", headers=admin_headers).status_code == 204
+    assert client.get(f"{url}/{created_json['id']}", headers=admin_headers).status_code == 404
+
+    other_url = f"/api/v1/churches/{scenario.other_church.id}/notices/{pinned.json()['id']}"
+    assert client.get(other_url, headers=admin_headers).status_code == 403
+
+    notice_view = mysql_session.scalar(
+        select(Permission).where(Permission.code == "notice.view")
+    )
+    assert notice_view is not None
+    mysql_session.add(
+        MembershipPermissionOverride(
+            membership_id=author_membership.id,
+            permission_id=notice_view.id,
+            effect=PermissionEffect.DENY,
+        )
+    )
+    mysql_session.commit()
+    assert client.get(url, headers=admin_headers).status_code == 403
