@@ -112,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
             ),
-            if (kDebugMode) ...[
+            if (kDebugMode && state.authRepository.accountHints.isNotEmpty) ...[
               const SizedBox(height: 30),
               const Divider(),
               const SizedBox(height: 20),

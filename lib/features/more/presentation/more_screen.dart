@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
 import '../../../core/permission/app_permission.dart';
+import '../../../core/network/api_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../church/presentation/membership_admin_screen.dart';
 import '../../church/presentation/membership_status_screen.dart';
@@ -101,7 +102,13 @@ class MoreScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
             ),
           ],
-          if (kDebugMode) ...[
+          if (kDebugMode &&
+              state.hasAny({
+                AppPermission.memberView,
+                AppPermission.memberManage,
+                AppPermission.roleView,
+                AppPermission.permissionManage,
+              })) ...[
             const SizedBox(height: 28),
             Text('개발 도구', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 10),
@@ -120,7 +127,7 @@ class MoreScreen extends StatelessWidget {
                 color: AppTheme.primary,
               ),
               title: const Text(
-                'Mock 가입 승인 관리',
+                '가입 승인 관리',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
@@ -152,7 +159,7 @@ class MoreScreen extends StatelessWidget {
                     ),
                 ],
               ),
-            if (membership.isApproved) ...[
+            if (membership.isApproved && ApiConfig.useMockRepositories) ...[
               const SizedBox(height: 22),
               Text(
                 '실행 중 권한 변경 테스트',

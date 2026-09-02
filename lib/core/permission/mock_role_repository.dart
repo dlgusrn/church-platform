@@ -6,5 +6,6 @@ class MockRoleRepository implements RoleRepository {
   MockRoleRepository(this.store);
   final MockAppDataStore store;
   @override
-  Future<List<AppRole>> getRoles() async => List.unmodifiable(store.roles);
+  Future<List<AppRole>> getRoles(String churchId) async =>
+      List.unmodifiable(store.roles);
 }

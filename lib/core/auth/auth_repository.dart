@@ -1,6 +1,7 @@
 import '../../shared/models/user.dart';
 
 abstract interface class AuthRepository {
+  Future<AppUser?> restoreSession();
   Future<AppUser> signIn({required String loginId, required String password});
   Future<AppUser> register(RegisterRequest request);
   Future<AppUser?> getUser(String userId);

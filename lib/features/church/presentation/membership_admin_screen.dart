@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
+import '../../../app/app_state.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/permission/app_role.dart';
 import '../../../core/permission/effective_permission.dart';
@@ -16,17 +17,26 @@ class MembershipAdminScreen extends StatefulWidget {
 
 class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
   late Future<List<ChurchMembership>> _pending;
+  bool _initialized = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _pending = AppScope.of(context).membershipRepository
-        .getPendingMemberships();
+    if (_initialized) return;
+    _initialized = true;
+    final state = AppScope.of(context);
+    _pending = _load(state);
+  }
+
+  Future<List<ChurchMembership>> _load(AppState state) async {
+    if (state.has(AppPermission.roleView)) {
+      await state.loadRolesForActiveChurch();
+    }
+    return state.getPendingMemberships();
   }
 
   Future<void> _reload() async {
-    final memberships = await AppScope.of(context).membershipRepository
-        .getPendingMemberships();
+    final memberships = await AppScope.of(context).getPendingMemberships();
     if (!mounted) return;
     setState(() {
       _pending = Future.value(memberships);
@@ -39,27 +49,42 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
     final state = AppScope.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mock 가입 승인 관리'),
+        title: const Text('가입 승인 관리'),
         backgroundColor: Colors.white,
       ),
       body: FutureBuilder<List<ChurchMembership>>(
         future: _pending,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  state.membershipError ?? '가입 요청을 불러오지 못했습니다.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            );
+          }
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
           final memberships = snapshot.data!;
-          if (memberships.isEmpty)
-            return const Center(
-              child: Text(
-                '승인 대기 중인 가입 요청이 없습니다.',
-                style: TextStyle(color: AppTheme.muted),
-              ),
-            );
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
             children: [
               Text('신규 가입 요청', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
+              if (memberships.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text(
+                      '승인 대기 중인 가입 요청이 없습니다.',
+                      style: TextStyle(color: AppTheme.muted),
+                    ),
+                  ),
+                ),
               ...memberships.map(
                 (membership) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -72,7 +97,9 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              userSnapshot.data?.name ?? '가입자',
+                              membership.applicantName ??
+                                  userSnapshot.data?.name ??
+                                  '가입자',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 6),
@@ -83,13 +110,14 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                             const SizedBox(height: 16),
-                            OutlinedButton(
-                              onPressed: () async {
-                                await _showManagement(context, membership);
-                                await _reload();
-                              },
-                              child: const Text('관리'),
-                            ),
+                            if (state.has(AppPermission.memberManage))
+                              OutlinedButton(
+                                onPressed: () async {
+                                  await _showManagement(context, membership);
+                                  await _reload();
+                                },
+                                child: const Text('관리'),
+                              ),
                           ],
                         ),
                       ),
@@ -97,6 +125,27 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                   ),
                 ),
               ),
+              if (state.has(AppPermission.permissionManage) &&
+                  state.activeMembership != null) ...[
+                const SizedBox(height: 18),
+                Text(
+                  'Permission 관리 테스트',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    title: Text(state.activeMembership!.church.name),
+                    subtitle: const Text(
+                      '현재 Active Membership의 Role/Override 수정',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () =>
+                        _showManagement(context, state.activeMembership!),
+                  ),
+                ),
+              ],
             ],
           );
         },
@@ -135,12 +184,21 @@ class _MembershipManagementSheetState
   final Set<AppPermission> _added = {};
   final Set<AppPermission> _excluded = {};
   bool _submitting = false;
+  bool _initialized = false;
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final roles = state.roles;
-    _role ??= roles.firstOrNull;
+    if (!_initialized && roles.isNotEmpty) {
+      _initialized = true;
+      _role = roles
+          .where((role) => role.id == widget.membership.role?.id)
+          .firstOrNull;
+      _role ??= roles.first;
+      _added.addAll(widget.membership.addedPermissions);
+      _excluded.addAll(widget.membership.excludedPermissions);
+    }
     final effective = EffectivePermission.calculate(
       rolePermissions: _role?.defaultPermissions ?? const {},
       addedPermissions: _added,
@@ -267,39 +325,73 @@ class _MembershipManagementSheetState
                 permissions: effective.toSet(),
               ),
               const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _submitting || _role == null
-                    ? null
-                    : () async {
-                        setState(() => _submitting = true);
-                        await state.approveMembership(
-                          membership: widget.membership,
-                          role: _role!,
-                          addedPermissions: _added,
-                          excludedPermissions: _excluded,
-                        );
-                        if (context.mounted) Navigator.of(context).pop();
-                      },
-                child: const Text('승인'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: _submitting
-                    ? null
-                    : () async {
-                        setState(() => _submitting = true);
-                        await state.rejectMembership(widget.membership);
-                        if (context.mounted) Navigator.of(context).pop();
-                      },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+              if ((widget.membership.isApproved &&
+                      state.has(AppPermission.permissionManage)) ||
+                  (!widget.membership.isApproved &&
+                      state.has(AppPermission.memberManage)))
+                FilledButton(
+                  onPressed: _submitting || _role == null
+                      ? null
+                      : () async {
+                          setState(() => _submitting = true);
+                          final success = widget.membership.isApproved
+                              ? await state.updateMembershipPermissions(
+                                  membership: widget.membership,
+                                  role: _role!,
+                                  addedPermissions: _added,
+                                  excludedPermissions: _excluded,
+                                )
+                              : await state.approveMembership(
+                                  membership: widget.membership,
+                                  role: _role!,
+                                  addedPermissions: _added,
+                                  excludedPermissions: _excluded,
+                                );
+                          if (!context.mounted) return;
+                          if (success) {
+                            Navigator.of(context).pop();
+                          } else {
+                            setState(() => _submitting = false);
+                          }
+                        },
+                  child: Text(widget.membership.isApproved ? '권한 저장' : '승인'),
                 ),
-                child: const Text('거절'),
-              ),
+              if (!widget.membership.isApproved &&
+                  state.has(AppPermission.memberManage))
+                const SizedBox(height: 10),
+              if (!widget.membership.isApproved &&
+                  state.has(AppPermission.memberManage))
+                OutlinedButton(
+                  onPressed: _submitting
+                      ? null
+                      : () async {
+                          setState(() => _submitting = true);
+                          final success = await state.rejectMembership(
+                            widget.membership,
+                          );
+                          if (!context.mounted) return;
+                          if (success) {
+                            Navigator.of(context).pop();
+                          } else {
+                            setState(() => _submitting = false);
+                          }
+                        },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text('거절'),
+                ),
+              if (state.membershipError != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  state.membershipError!,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ],
             ],
           ),
         ),

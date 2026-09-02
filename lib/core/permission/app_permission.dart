@@ -32,6 +32,23 @@ enum AppPermission {
 
   const AppPermission(this.code);
   final String code;
+
+  static AppPermission? fromCode(String code) {
+    for (final permission in values) {
+      if (permission.code == code) return permission;
+    }
+    return null;
+  }
+
+  static Set<AppPermission> parseCodes(Iterable<dynamic> codes) {
+    final result = <AppPermission>{};
+    for (final code in codes) {
+      if (code is! String) continue;
+      final permission = fromCode(code);
+      if (permission != null) result.add(permission);
+    }
+    return result;
+  }
 }
 
 const videoNavigationPermissions = {

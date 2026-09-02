@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/auth/auth_repository.dart';
+import '../core/network/api_client.dart';
+import '../core/network/api_config.dart';
 import '../core/permission/app_permission.dart';
 import '../core/permission/app_role.dart';
 import '../core/permission/effective_permission.dart';
@@ -14,6 +16,7 @@ import '../shared/models/church.dart';
 import '../shared/models/user.dart';
 
 enum AppSessionStatus {
+  restoring,
   signedOut,
   selectingJoinChurch,
   approvalPending,
@@ -39,7 +42,7 @@ class AppState extends ChangeNotifier {
   final HomeRepository homeRepository;
   final LiveAccessService liveAccessService;
 
-  AppSessionStatus status = AppSessionStatus.signedOut;
+  AppSessionStatus status = AppSessionStatus.restoring;
   AppUser? currentUser;
   ChurchMembership? activeMembership;
   ChurchMembership? previewMembership;
@@ -64,6 +67,9 @@ class AppState extends ChangeNotifier {
   List<Church> get joinableChurches {
     final existingIds =
         currentUser?.memberships
+            .where(
+              (membership) => membership.status != MembershipStatus.rejected,
+            )
             .map((membership) => membership.church.id)
             .toSet() ??
         <String>{};
@@ -77,14 +83,43 @@ class AppState extends ChangeNotifier {
   bool hasAny(Set<AppPermission> permissions) =>
       EffectivePermission.hasAny(effectivePermissions, permissions);
 
-  Future<void> loadCatalogs() async {
-    final results = await Future.wait([
-      churchRepository.getChurches(),
-      roleRepository.getRoles(),
-    ]);
-    churches = results[0] as List<Church>;
-    roles = results[1] as List<AppRole>;
+  Future<void> restoreSession() async {
+    status = AppSessionStatus.restoring;
     notifyListeners();
+    try {
+      final user = await authRepository.restoreSession();
+      if (user == null) {
+        status = AppSessionStatus.signedOut;
+        return;
+      }
+      currentUser = user;
+      await loadCatalogs();
+      await _routeAuthenticatedUser(user);
+    } catch (error) {
+      currentUser = null;
+      _clearChurchContext();
+      if (error is SessionExpiredException ||
+          (error is ApiException && error.statusCode == 401)) {
+        await authRepository.signOut();
+      }
+      authError = _message(error);
+      status = AppSessionStatus.signedOut;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadCatalogs() async {
+    churches = await churchRepository.getChurches();
+    notifyListeners();
+  }
+
+  Future<List<AppRole>> loadRolesForActiveChurch() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null || !has(AppPermission.roleView)) return const [];
+    roles = await roleRepository.getRoles(churchId);
+    notifyListeners();
+    return roles;
   }
 
   Future<void> signIn({
@@ -102,26 +137,9 @@ class AppState extends ChangeNotifier {
       _clearChurchContext();
       currentUser = user;
       await loadCatalogs();
-      final approved = user.approvedMemberships;
-      if (approved.length == 1) {
-        await activateChurch(approved.single);
-      } else if (approved.length > 1) {
-        status = AppSessionStatus.selectingChurch;
-      } else {
-        final pending = user.memberships
-            .where((item) => item.status == MembershipStatus.pending)
-            .firstOrNull;
-        if (pending != null) {
-          lastRequestedMembership = pending;
-          status = AppSessionStatus.approvalPending;
-        } else if (user.memberships.isNotEmpty) {
-          status = AppSessionStatus.membershipStatus;
-        } else {
-          status = AppSessionStatus.selectingJoinChurch;
-        }
-      }
-    } on AuthException catch (error) {
-      authError = error.message;
+      await _routeAuthenticatedUser(user);
+    } catch (error) {
+      authError = _message(error);
       status = AppSessionStatus.signedOut;
     } finally {
       isBusy = false;
@@ -145,8 +163,8 @@ class AppState extends ChangeNotifier {
       await loadCatalogs();
       status = AppSessionStatus.selectingJoinChurch;
       return true;
-    } on AuthException catch (error) {
-      registrationError = error.message;
+    } catch (error) {
+      registrationError = _message(error);
       return false;
     } finally {
       isBusy = false;
@@ -169,8 +187,8 @@ class AppState extends ChangeNotifier {
       if (onboarding) status = AppSessionStatus.approvalPending;
       notifyListeners();
       return membership;
-    } on MembershipException catch (error) {
-      membershipError = error.message;
+    } catch (error) {
+      membershipError = _message(error);
       notifyListeners();
       return null;
     }
@@ -191,6 +209,32 @@ class AppState extends ChangeNotifier {
             true)
       return;
     _runtimeAddedPermissions.clear();
+    membershipError = null;
+    try {
+      final breakdown = await membershipRepository.getPermissions(
+        membership.id,
+      );
+      membership = membership.copyWith(
+        role: membership.role == null
+            ? null
+            : AppRole(
+                id: membership.role!.id,
+                code: membership.role!.code,
+                name: membership.role!.name,
+                isSystem: membership.role!.isSystem,
+                defaultPermissions: breakdown.rolePermissions,
+              ),
+        addedPermissions: breakdown.grantedPermissions,
+        excludedPermissions: breakdown.deniedPermissions,
+        resolvedPermissions: breakdown.effectivePermissions,
+      );
+      _replaceCurrentMembership(membership);
+    } catch (error) {
+      membershipError = _message(error);
+      status = AppSessionStatus.selectingChurch;
+      notifyListeners();
+      return;
+    }
     previewMembership = null;
     activeMembership = membership;
     status = AppSessionStatus.authenticated;
@@ -252,28 +296,91 @@ class AppState extends ChangeNotifier {
   }
 
   Future<AppUser?> userForMembership(ChurchMembership membership) =>
-      authRepository.getUser(membership.userId);
+      membership.applicantName == null
+      ? authRepository.getUser(membership.userId)
+      : Future.value(
+          AppUser(
+            id: membership.userId,
+            name: membership.applicantName!,
+            loginId: membership.applicantLoginId ?? '',
+            memberships: const [],
+          ),
+        );
 
-  Future<void> approveMembership({
+  Future<List<ChurchMembership>> getPendingMemberships() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null || !has(AppPermission.memberView)) return const [];
+    return membershipRepository.getPendingMemberships(churchId: churchId);
+  }
+
+  Future<bool> approveMembership({
     required ChurchMembership membership,
     required AppRole role,
     required Set<AppPermission> addedPermissions,
     required Set<AppPermission> excludedPermissions,
   }) async {
-    await membershipRepository.approve(
-      membershipId: membership.id,
-      role: role,
-      addedPermissions: addedPermissions,
-      excludedPermissions: excludedPermissions,
-    );
-    await refreshCurrentUser();
-    notifyListeners();
+    membershipError = null;
+    try {
+      await membershipRepository.approve(
+        churchId: membership.church.id,
+        membershipId: membership.id,
+        role: role,
+        addedPermissions: addedPermissions,
+        excludedPermissions: excludedPermissions,
+      );
+      await refreshCurrentUser();
+      notifyListeners();
+      return true;
+    } catch (error) {
+      membershipError = _message(error);
+      notifyListeners();
+      return false;
+    }
   }
 
-  Future<void> rejectMembership(ChurchMembership membership) async {
-    await membershipRepository.reject(membership.id);
-    await refreshCurrentUser();
-    notifyListeners();
+  Future<bool> rejectMembership(ChurchMembership membership) async {
+    membershipError = null;
+    try {
+      await membershipRepository.reject(
+        churchId: membership.church.id,
+        membershipId: membership.id,
+      );
+      await refreshCurrentUser();
+      notifyListeners();
+      return true;
+    } catch (error) {
+      membershipError = _message(error);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateMembershipPermissions({
+    required ChurchMembership membership,
+    required AppRole role,
+    required Set<AppPermission> addedPermissions,
+    required Set<AppPermission> excludedPermissions,
+  }) async {
+    membershipError = null;
+    try {
+      await membershipRepository.updatePermissions(
+        churchId: membership.church.id,
+        membershipId: membership.id,
+        role: role,
+        addedPermissions: addedPermissions,
+        excludedPermissions: excludedPermissions,
+      );
+      await refreshCurrentUser();
+      final refreshed = currentUser?.memberships
+          .where((item) => item.id == membership.id)
+          .firstOrNull;
+      if (refreshed != null) await activateChurch(refreshed);
+      return true;
+    } catch (error) {
+      membershipError = _message(error);
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<void> signOut() async {
@@ -292,6 +399,55 @@ class AppState extends ChangeNotifier {
     previewMembership = null;
     lastRequestedMembership = null;
     homeContent = null;
+    roles = [];
     _runtimeAddedPermissions.clear();
   }
+
+  Future<void> handleSessionExpired() async {
+    currentUser = null;
+    _clearChurchContext();
+    authError = '로그인 세션이 만료되었습니다. 다시 로그인해주세요.';
+    status = AppSessionStatus.signedOut;
+    notifyListeners();
+  }
+
+  Future<void> _routeAuthenticatedUser(AppUser user) async {
+    final approved = user.approvedMemberships;
+    if (approved.length == 1) {
+      await activateChurch(approved.single);
+    } else if (approved.length > 1) {
+      status = AppSessionStatus.selectingChurch;
+    } else {
+      final pending = user.memberships
+          .where((item) => item.status == MembershipStatus.pending)
+          .firstOrNull;
+      if (pending != null) {
+        lastRequestedMembership = pending;
+        status = AppSessionStatus.approvalPending;
+      } else if (user.memberships.isNotEmpty) {
+        status = AppSessionStatus.membershipStatus;
+      } else {
+        status = AppSessionStatus.selectingJoinChurch;
+      }
+    }
+  }
+
+  void _replaceCurrentMembership(ChurchMembership updated) {
+    final user = currentUser;
+    if (user == null) return;
+    currentUser = user.copyWith(
+      memberships: [
+        for (final membership in user.memberships)
+          if (membership.id == updated.id) updated else membership,
+      ],
+    );
+  }
+
+  static String _message(Object error) => switch (error) {
+    AuthException(:final message) => message,
+    MembershipException(:final message) => message,
+    ApiException(:final message) => message,
+    ApiConfigurationException(:final message) => message,
+    _ => '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
+  };
 }

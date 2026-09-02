@@ -94,6 +94,26 @@ DATABASE_URL="$TEST_DATABASE_URL" alembic current
 
 SQLAlchemy `create_all()`로 Migration을 우회하지 않습니다.
 
+### 개발 DB 완전 초기화
+
+과거 실패한 Migration 때문에 `church_app`이 partial schema 상태인 경우 아래 전용
+스크립트로 개발 DB만 삭제·재생성하고 Alembic head를 처음부터 적용합니다.
+
+> 이 명령은 `church_app`의 User, Membership, Token 등 개발 데이터를 모두 삭제합니다.
+> 명시적인 `APP_ENV=development`, `DATABASE_URL`의 DB 이름, 확인 인자가 모두 정확해야 실행되며
+> `church_app_test` 또는 다른 DB는 거부합니다.
+
+```bash
+python -m app.scripts.reset_development_database --confirm-database church_app
+alembic current
+alembic heads
+python -m app.scripts.seed_permissions
+python -m app.scripts.seed_development_data
+```
+
+정상 상태에서는 `alembic current`가 `20260901_0001 (head)`를 출력하며, Alembic 관리
+Table 외에 Application Table 8개가 생성됩니다.
+
 ## 5. Permission과 System Role Seed
 
 Seed는 개발 DB에서 실행합니다. 두 번 실행해도 Permission, Role, Mapping이 중복되지

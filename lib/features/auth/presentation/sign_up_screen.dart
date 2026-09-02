@@ -90,8 +90,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 ),
                 validator: (value) => value == null || value.isEmpty
                     ? '비밀번호를 입력해주세요.'
-                    : value.length < 6
-                    ? '비밀번호는 6자 이상 입력해주세요.'
+                    : value.length < 8
+                    ? '비밀번호는 8자 이상 입력해주세요.'
                     : null,
               ),
               const SizedBox(height: 12),

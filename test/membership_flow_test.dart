@@ -90,6 +90,7 @@ void main() {
       churchId: 'sky-gate',
     );
     final approved = await repository.approve(
+      churchId: pending.church.id,
       membershipId: pending.id,
       role: MockAppDataStore.memberRole,
     );
@@ -116,7 +117,7 @@ void main() {
       churchId: 'sky-gate',
     );
     await repository.requestJoin(userId: user.id, churchId: 'bethel');
-    await repository.reject(first.id);
+    await repository.reject(churchId: first.church.id, membershipId: first.id);
     final signedIn = await auth.signIn(
       loginId: 'reject@test.app',
       password: '123456',
@@ -166,6 +167,7 @@ void main() {
       churchId: 'sky-gate',
     );
     final approved = await repository.approve(
+      churchId: pending.church.id,
       membershipId: pending.id,
       role: MockAppDataStore.memberRole,
       addedPermissions: {AppPermission.mediaAudioView},

@@ -25,6 +25,9 @@ class ChurchApp extends StatelessWidget {
         home: AnimatedBuilder(
           animation: appState,
           builder: (context, _) => switch (appState.status) {
+            AppSessionStatus.restoring => const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
             AppSessionStatus.signedOut => const LoginScreen(),
             AppSessionStatus.selectingJoinChurch =>
               const JoinChurchSelectionScreen(onboarding: true),

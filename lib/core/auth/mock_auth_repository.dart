@@ -27,6 +27,9 @@ class MockAuthRepository implements AuthRepository {
   ];
 
   @override
+  Future<AppUser?> restoreSession() async => null;
+
+  @override
   Future<AppUser> signIn({
     required String loginId,
     required String password,
