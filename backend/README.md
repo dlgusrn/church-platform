@@ -90,6 +90,7 @@ DATABASE_URL="$TEST_DATABASE_URL" alembic current
 - `users`, `churches`, `church_memberships`
 - `roles`, `permissions`, `role_permissions`
 - `membership_permission_overrides`, `refresh_tokens`
+- `worship_schedules`, `live_broadcasts`
 - Alembic 관리용 `alembic_version`
 
 SQLAlchemy `create_all()`로 Migration을 우회하지 않습니다.
@@ -111,8 +112,8 @@ python -m app.scripts.seed_permissions
 python -m app.scripts.seed_development_data
 ```
 
-정상 상태에서는 `alembic current`가 `20260901_0001 (head)`를 출력하며, Alembic 관리
-Table 외에 Application Table 8개가 생성됩니다.
+정상 상태에서는 `alembic current`가 `20260902_0003 (head)`를 출력하며, Alembic 관리
+Table 외에 Application Table 10개가 생성됩니다.
 
 ## 5. Permission과 System Role Seed
 
@@ -124,7 +125,7 @@ python -m app.scripts.seed_permissions
 python -m app.scripts.seed_permissions
 ```
 
-- Permission: 30개
+- Permission: 31개 (`live.manage` 포함)
 - `member`: `live.access`, `vod.view`
 - `staff`: 앱의 직원 기본 Permission 11개
 - `admin`: 전체 Permission
@@ -142,7 +143,7 @@ pytest -m "not integration"
 MySQL Integration Test는 `TEST_DATABASE_URL`만 사용합니다. URL의 DB 이름에 `test`가
 없으면 테스트가 즉시 실패하므로 `church_app` 개발 DB에서는 실행되지 않습니다.
 테스트 session 시작 시 fixture가 테스트 DB에 `alembic upgrade head`를 적용하고,
-Alembic revision과 필수 8개 Table을 확인한 후에만 테스트를 실행합니다.
+Alembic revision과 필수 10개 Table을 확인한 후에만 테스트를 실행합니다.
 
 ```bash
 pytest -m integration
@@ -172,6 +173,7 @@ Integration Test는 다음을 검증합니다.
 - Permission/System Role Seed 2회 실행 멱등성
 - Register/Login/Refresh/Current User/Health API
 - Argon2 hash 저장과 Refresh Token rotation/reuse 거부
+- 교회별 예배 일정/LIVE CRUD, 권한 격리, current 선정 및 제목 생성
 - OpenAPI에 필수 Endpoint 노출
 
 테스트는 외부 Transaction으로 감싸고 종료 시 rollback합니다. 운영 DB를 테스트에 연결하지
@@ -263,11 +265,36 @@ Volume을 다시 만들면 초기화 스크립트가 `church_app`과 `church_app
 Effective Permission을 검사합니다. JWT에는 Permission을 저장하지 않으므로 Role이나
 Override 변경이 기존 Access Token에도 즉시 반영됩니다.
 
+## 예배 일정과 LIVE API
+
+- `GET/POST /api/v1/churches/{church_id}/worship-schedules`
+- `PATCH /api/v1/churches/{church_id}/worship-schedules/{schedule_id}`
+- `GET /api/v1/churches/{church_id}/live-broadcasts/current`
+- `GET/POST /api/v1/churches/{church_id}/live-broadcasts`
+- `PATCH /api/v1/churches/{church_id}/live-broadcasts/{broadcast_id}`
+
+예배 일정은 `schedule.view`/`schedule.manage`, LIVE 관리는 `live.manage`를 사용합니다.
+`live.access`는 기존 시청 비밀번호 우회 권한이며 관리 권한으로 사용하지 않습니다.
+
+예배시간 안내(`worship_schedules`)는 요일명을 포함한 독립 안내 정보이며, LIVE는
+연결 일정이 아닌 자체 `worship_type`(낮예배/밤예배/11시기도/특별성회/사용자 지정)으로
+제목을 구성합니다.
+
+current LIVE는 `status=live`인 방송 중 방송 날짜와 id가 가장 최근인 하나만 반환합니다.
+`scheduled`와 `ended`는 반환하지 않습니다.
+
+대상이 없으면 `200`과 JSON `null`을 반환합니다. 표시 제목은 `title_override`가 우선이며,
+없으면 Backend가 `{YYYY}년 {MM}월 {DD}일({요일}) {예배명} 생방송` 형식으로 생성합니다.
+YouTube 상태 자동 감지는 아직 하지 않으며 관리자가 상태를 변경합니다.
+
 개발 교회 Seed는 production startup과 분리되어 있습니다.
 
 ```bash
 python -m app.scripts.seed_development_data
 ```
+
+개발 Seed는 하늘문교회에 실제 운영시간으로 오해되지 않는 `개발 테스트 예배` fixture를
+멱등하게 추가합니다.
 
 이 Seed는 기존 개발 DB의 `skydoor`/`beersheba` row가 있으면 삭제하거나 재생성하지
 않고 동일한 `churches.id`에서 각각 `skygate`/`beer`로 변경합니다. 따라서 기존

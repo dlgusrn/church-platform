@@ -17,6 +17,7 @@ import 'features/church/data/api_membership_repository.dart';
 import 'features/church/data/mock_church_repository.dart';
 import 'features/church/data/mock_membership_repository.dart';
 import 'features/home/data/mock_home_repository.dart';
+import 'features/home/data/api_home_repository.dart';
 import 'features/live/data/mock_live_access_service.dart';
 
 Future<void> main() async {
@@ -52,9 +53,7 @@ Future<void> main() async {
       churchRepository: ApiChurchRepository(client),
       membershipRepository: ApiMembershipRepository(client),
       roleRepository: ApiRoleRepository(client),
-      // TODO(phase-live-api): Replace only these boundaries when the
-      // Home/LIVE/password verification Backend contracts are available.
-      homeRepository: MockHomeRepository(),
+      homeRepository: ApiHomeRepository(client),
       liveAccessService: MockLiveAccessService(),
     );
     client.onSessionExpired = appState.handleSessionExpired;

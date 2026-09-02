@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError
+from app.models.enums import MembershipStatus
 from app.repositories.membership_repository import MembershipRepository
 from app.services.permission_service import get_permission_breakdown
 
@@ -22,3 +23,12 @@ class AuthorizationService:
         effective = get_permission_breakdown(membership).effective_permissions
         if permission_code not in effective:
             raise ForbiddenError("Insufficient church permission")
+
+    def require_approved_membership(self, *, user_id: int, church_id: int) -> None:
+        membership = self.memberships.get_by_user_and_church(user_id, church_id)
+        if membership is None or membership.status is not MembershipStatus.APPROVED:
+            raise ForbiddenError("Approved church membership required")
+
+    def require_church_membership(self, *, user_id: int, church_id: int) -> None:
+        if self.memberships.get_by_user_and_church(user_id, church_id) is None:
+            raise ForbiddenError("Church membership required")

@@ -48,6 +48,7 @@ class AppState extends ChangeNotifier {
   ChurchMembership? previewMembership;
   ChurchMembership? lastRequestedMembership;
   HomeContent? homeContent;
+  String? homeError;
   List<Church> churches = [];
   List<AppRole> roles = [];
   bool isBusy = false;
@@ -55,6 +56,7 @@ class AppState extends ChangeNotifier {
   String? registrationError;
   String? membershipError;
   final Set<AppPermission> _runtimeAddedPermissions = {};
+  int _homeLoadGeneration = 0;
 
   ChurchMembership? get currentChurchMembership =>
       activeMembership ?? previewMembership;
@@ -208,12 +210,15 @@ class AppState extends ChangeNotifier {
         currentUser?.memberships.any((item) => item.id == membership.id) !=
             true)
       return;
+    final transitionGeneration = _invalidateHomeContent();
     _runtimeAddedPermissions.clear();
     membershipError = null;
+    notifyListeners();
     try {
       final breakdown = await membershipRepository.getPermissions(
         membership.id,
       );
+      if (transitionGeneration != _homeLoadGeneration) return;
       membership = membership.copyWith(
         role: membership.role == null
             ? null
@@ -230,6 +235,7 @@ class AppState extends ChangeNotifier {
       );
       _replaceCurrentMembership(membership);
     } catch (error) {
+      if (transitionGeneration != _homeLoadGeneration) return;
       membershipError = _message(error);
       status = AppSessionStatus.selectingChurch;
       notifyListeners();
@@ -242,13 +248,76 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadHome(ChurchMembership membership) async {
-    homeContent = null;
+    final loadGeneration = _invalidateHomeContent();
     notifyListeners();
-    final content = await homeRepository.getHomeContent(membership.church.id);
-    if (currentChurchMembership?.id == membership.id) {
-      homeContent = content;
-      notifyListeners();
+    try {
+      final content = await homeRepository.getHomeContent(
+        membership.church.id,
+        includeSchedules: membership.effectivePermissions.contains(
+          AppPermission.scheduleView,
+        ),
+      );
+      if (loadGeneration == _homeLoadGeneration &&
+          currentChurchMembership?.id == membership.id) {
+        homeContent = content;
+        notifyListeners();
+      }
+    } catch (error) {
+      if (loadGeneration == _homeLoadGeneration &&
+          currentChurchMembership?.id == membership.id) {
+        homeError = _message(error);
+        notifyListeners();
+      }
     }
+  }
+
+  Future<void> reloadHome() async {
+    final membership = currentChurchMembership;
+    if (membership != null) await _loadHome(membership);
+  }
+
+  Future<List<WorshipSchedule>> loadManagedWorshipSchedules() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null || !has(AppPermission.scheduleManage)) return const [];
+    return homeRepository.getWorshipSchedules(churchId, includeInactive: true);
+  }
+
+  Future<WorshipSchedule> saveWorshipSchedule(
+    WorshipScheduleDraft draft, {
+    String? scheduleId,
+  }) async {
+    final churchId = activeMembership!.church.id;
+    final result = scheduleId == null
+        ? await homeRepository.createWorshipSchedule(churchId, draft)
+        : await homeRepository.updateWorshipSchedule(
+            churchId,
+            scheduleId,
+            draft,
+          );
+    await reloadHome();
+    return result;
+  }
+
+  Future<List<LiveBroadcast>> loadManagedLiveBroadcasts() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null || !has(AppPermission.liveManage)) return const [];
+    return homeRepository.getLiveBroadcasts(churchId);
+  }
+
+  Future<LiveBroadcast> saveLiveBroadcast(
+    LiveBroadcastDraft draft, {
+    String? broadcastId,
+  }) async {
+    final churchId = activeMembership!.church.id;
+    final result = broadcastId == null
+        ? await homeRepository.createLiveBroadcast(churchId, draft)
+        : await homeRepository.updateLiveBroadcast(
+            churchId,
+            broadcastId,
+            draft,
+          );
+    await reloadHome();
+    return result;
   }
 
   void requestChurchSelection() {
@@ -398,9 +467,15 @@ class AppState extends ChangeNotifier {
     activeMembership = null;
     previewMembership = null;
     lastRequestedMembership = null;
-    homeContent = null;
+    _invalidateHomeContent();
     roles = [];
     _runtimeAddedPermissions.clear();
+  }
+
+  int _invalidateHomeContent() {
+    homeContent = null;
+    homeError = null;
+    return ++_homeLoadGeneration;
   }
 
   Future<void> handleSessionExpired() async {
@@ -446,6 +521,7 @@ class AppState extends ChangeNotifier {
   static String _message(Object error) => switch (error) {
     AuthException(:final message) => message,
     MembershipException(:final message) => message,
+    HomeDataException(:final message) => message,
     ApiException(:final message) => message,
     ApiConfigurationException(:final message) => message,
     _ => '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',

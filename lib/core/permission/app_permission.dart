@@ -1,5 +1,6 @@
 enum AppPermission {
   liveAccess('live.access'),
+  liveManage('live.manage'),
   vodView('vod.view'),
   mediaVideoView('media.video.view'),
   mediaVideoDownload('media.video.download'),

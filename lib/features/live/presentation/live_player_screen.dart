@@ -105,7 +105,7 @@ class LivePlayerScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '현재 Mock Player 화면입니다. 실제 스트림은 Backend 연동 단계에서 연결합니다.',
+                    '방송 정보와 YouTube URL이 연결되었습니다. 실제 YouTube 재생은 후속 단계에서 연결합니다.',
                     style: TextStyle(color: Color(0xFF9EAAA6), height: 1.45),
                   ),
                 ],

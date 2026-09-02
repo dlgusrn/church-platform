@@ -11,6 +11,8 @@ import 'package:church_app/core/permission/app_role.dart';
 import 'package:church_app/features/church/data/api_church_repository.dart';
 import 'package:church_app/features/church/data/api_membership_repository.dart';
 import 'package:church_app/features/church/data/membership_repository.dart';
+import 'package:church_app/features/home/data/api_home_repository.dart';
+import 'package:church_app/features/home/domain/home_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -37,6 +39,43 @@ void main() {
     expect(request.headers['Content-Type'], 'application/json; charset=utf-8');
     expect(decoded['name'], '이현구 Test');
     expect(decoded['email'], 'hyungu@example.com');
+  });
+
+  test('예배 일정과 current LIVE 응답을 파싱하고 Backend 제목을 그대로 사용한다', () async {
+    final transport = FakeHttpTransport([
+      jsonResponse(200, [worshipScheduleJson]),
+      jsonResponse(200, liveBroadcastJson),
+    ]);
+    final repository = ApiHomeRepository(
+      apiClient(transport, MemoryTokenStore()..accessToken = 'access'),
+    );
+
+    final content = await repository.getHomeContent('1');
+
+    expect(content.schedules.single.name, '낮예배');
+    expect(content.schedules.single.displayTime, '11:00');
+    expect(content.live?.displayTitle, '서버가 만든 정확한 제목');
+    expect(content.live?.status, LiveBroadcastStatus.live);
+    expect(transport.requests.map((item) => item.uri.path), [
+      '/api/v1/churches/1/worship-schedules',
+      '/api/v1/churches/1/live-broadcasts/current',
+    ]);
+  });
+
+  test('current LIVE null과 빈 예배 일정 응답을 empty state로 매핑한다', () async {
+    final repository = ApiHomeRepository(
+      apiClient(
+        FakeHttpTransport([
+          jsonResponse(200, const []),
+          const HttpTransportResponse(statusCode: 200, body: 'null'),
+        ]),
+        MemoryTokenStore()..accessToken = 'access',
+      ),
+    );
+
+    final content = await repository.getHomeContent('1');
+    expect(content.live, isNull);
+    expect(content.schedules, isEmpty);
   });
 
   test('401이면 refresh rotation 후 원 요청을 새 access token으로 재시도한다', () async {
@@ -388,6 +427,34 @@ const pendingMembershipJson = {
   'church': {'id': 1, 'code': 'skygate', 'name': '하늘문교회'},
   'status': 'pending',
   'requested_at': '2026-09-01T00:00:00Z',
+};
+
+const worshipScheduleJson = {
+  'id': 21,
+  'church_id': 1,
+  'title': '낮예배',
+  'day_label': '수요일',
+  'time': '11:00:00',
+  'display_order': 1,
+  'is_active': true,
+  'created_at': '2026-09-02T00:00:00Z',
+  'updated_at': '2026-09-02T00:00:00Z',
+};
+
+const liveBroadcastJson = {
+  'id': 31,
+  'church_id': 1,
+  'worship_type': 'day',
+  'custom_worship_name': null,
+  'broadcast_date': '2026-09-02',
+  'title_override': null,
+  'display_title': '서버가 만든 정확한 제목',
+  'youtube_url': 'https://youtu.be/example',
+  'status': 'live',
+  'started_at': '2026-09-02T01:00:00Z',
+  'ended_at': null,
+  'created_at': '2026-09-02T00:00:00Z',
+  'updated_at': '2026-09-02T00:00:00Z',
 };
 
 final tokenResponse = jsonResponse(200, {

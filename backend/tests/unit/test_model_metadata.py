@@ -10,6 +10,8 @@ EXPECTED_TABLES = {
     "role_permissions",
     "membership_permission_overrides",
     "refresh_tokens",
+    "worship_schedules",
+    "live_broadcasts",
 }
 
 

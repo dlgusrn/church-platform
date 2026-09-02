@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class PermissionCode(StrEnum):
     LIVE_ACCESS = "live.access"
+    LIVE_MANAGE = "live.manage"
     VOD_VIEW = "vod.view"
     MEDIA_VIDEO_VIEW = "media.video.view"
     MEDIA_VIDEO_DOWNLOAD = "media.video.download"

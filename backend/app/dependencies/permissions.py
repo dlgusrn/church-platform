@@ -35,3 +35,38 @@ RoleViewPermission = Annotated[
 PermissionManagePermission = Annotated[
     None, Depends(require_church_permission(PermissionCode.PERMISSION_MANAGE))
 ]
+ScheduleViewPermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.SCHEDULE_VIEW))
+]
+ScheduleManagePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.SCHEDULE_MANAGE))
+]
+LiveManagePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.LIVE_MANAGE))
+]
+
+
+def require_approved_membership(
+    church_id: int,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    AuthorizationService(session).require_approved_membership(
+        user_id=current_user.id, church_id=church_id
+    )
+
+
+ApprovedChurchMembership = Annotated[None, Depends(require_approved_membership)]
+
+
+def require_church_membership(
+    church_id: int,
+    current_user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    AuthorizationService(session).require_church_membership(
+        user_id=current_user.id, church_id=church_id
+    )
+
+
+ChurchMembershipRequired = Annotated[None, Depends(require_church_membership)]

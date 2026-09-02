@@ -1,14 +1,18 @@
+from datetime import time
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.models.church import Church
+from app.models.worship_schedule import WorshipSchedule
 
 DEVELOPMENT_CHURCHES = (
     ("skygate", "하늘문교회", "skydoor"),
     ("beer", "브엘성회", "beersheba"),
 )
+DEVELOPMENT_SCHEDULE_NAME = "개발 테스트 예배"
 
 
 def reconcile_development_church(
@@ -51,12 +55,36 @@ def seed_development_churches(session: Session) -> None:
     session.commit()
 
 
+def seed_development_worship_schedules(session: Session) -> None:
+    church = session.scalar(select(Church).where(Church.code == "skygate"))
+    if church is None:
+        raise RuntimeError("Run development church seed before schedule seed")
+    schedule = session.scalar(
+        select(WorshipSchedule).where(
+            WorshipSchedule.church_id == church.id,
+            WorshipSchedule.title == DEVELOPMENT_SCHEDULE_NAME,
+        )
+    )
+    if schedule is None:
+        schedule = WorshipSchedule(
+            church_id=church.id,
+            title=DEVELOPMENT_SCHEDULE_NAME,
+            day_label="개발용",
+            time=time(19, 0),
+            display_order=0,
+            is_active=True,
+        )
+        session.add(schedule)
+    session.commit()
+
+
 def main() -> None:
     if get_settings().app_env.lower() == "production":
         raise SystemExit("Development data seed is disabled in production")
     with get_session_factory()() as session:
         try:
             seed_development_churches(session)
+            seed_development_worship_schedules(session)
         except Exception:
             session.rollback()
             raise

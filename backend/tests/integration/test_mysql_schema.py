@@ -16,6 +16,8 @@ EXPECTED_TABLES = {
     "role_permissions",
     "membership_permission_overrides",
     "refresh_tokens",
+    "worship_schedules",
+    "live_broadcasts",
 }
 
 EXPECTED_UNIQUE_COLUMNS = {
@@ -44,6 +46,25 @@ EXPECTED_FOREIGN_KEYS = {
         ("permission_id", "permissions"),
     },
     "refresh_tokens": {("user_id", "users")},
+    "worship_schedules": {("church_id", "churches")},
+    "live_broadcasts": {("church_id", "churches")},
+}
+
+EXPECTED_COLUMNS = {
+    "worship_schedules": {"title", "day_label", "time", "display_order", "is_active"},
+    "live_broadcasts": {
+        "worship_type",
+        "custom_worship_name",
+        "broadcast_date",
+        "youtube_url",
+        "status",
+        "title_override",
+    },
+}
+
+REMOVED_COLUMNS = {
+    "worship_schedules": {"name", "day_of_week", "start_time"},
+    "live_broadcasts": {"worship_schedule_id"},
 }
 
 
@@ -74,6 +95,11 @@ def test_migrated_tables_constraints_and_foreign_keys(mysql_session: Session) ->
         }
         assert expected_foreign_keys <= actual
 
+    for table_name, expected_columns in EXPECTED_COLUMNS.items():
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        assert expected_columns <= columns
+        assert not (REMOVED_COLUMNS[table_name] & columns)
+
 
 def test_mysql_enum_values_match_python_contract(mysql_session: Session) -> None:
     inspector = inspect(mysql_session.connection())
@@ -87,7 +113,16 @@ def test_mysql_enum_values_match_python_contract(mysql_session: Session) -> None
 
     membership_enum = membership_columns["status"]["type"]
     override_enum = override_columns["effect"]["type"]
+    live_columns = {
+        column["name"]: column for column in inspector.get_columns("live_broadcasts")
+    }
+    live_status_enum = live_columns["status"]["type"]
+    live_worship_type_enum = live_columns["worship_type"]["type"]
     assert isinstance(membership_enum, ENUM)
     assert membership_enum.enums == ["pending", "approved", "rejected"]
     assert isinstance(override_enum, ENUM)
     assert override_enum.enums == ["grant", "deny"]
+    assert isinstance(live_status_enum, ENUM)
+    assert live_status_enum.enums == ["scheduled", "live", "ended"]
+    assert isinstance(live_worship_type_enum, ENUM)
+    assert live_worship_type_enum.enums == ["day", "night", "prayer_11", "special", "custom"]

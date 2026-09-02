@@ -60,7 +60,12 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (content == null)
+                  if (state.homeError != null)
+                    _HomeError(
+                      message: state.homeError!,
+                      onRetry: state.reloadHome,
+                    )
+                  else if (content == null)
                     const SizedBox(
                       height: 280,
                       child: Center(child: CircularProgressIndicator()),
@@ -70,9 +75,13 @@ class HomeScreen extends StatelessWidget {
                       LiveCard(
                         live: live,
                         onTap: () => LiveEntry.open(context, live),
-                      ),
-                    const SizedBox(height: 18),
-                    WorshipScheduleCard(schedules: content.schedules),
+                      )
+                    else
+                      const LiveEmptyCard(),
+                    if (state.has(AppPermission.scheduleView)) ...[
+                      const SizedBox(height: 18),
+                      WorshipScheduleCard(schedules: content.orderedSchedules),
+                    ],
                     if (state.has(AppPermission.vodView)) ...[
                       const SizedBox(height: 30),
                       Row(
@@ -198,13 +207,14 @@ class LiveCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          '오전 11:00',
-                          style: TextStyle(
-                            color: Color(0xFFBCC8C4),
-                            fontSize: 14,
+                        if (live.worshipLabel.isNotEmpty)
+                          Text(
+                            live.worshipLabel,
+                            style: const TextStyle(
+                              color: Color(0xFFBCC8C4),
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -217,6 +227,35 @@ class LiveCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class LiveEmptyCard extends StatelessWidget {
+  const LiveEmptyCard({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 136,
+    decoration: BoxDecoration(
+      color: AppTheme.ink,
+      borderRadius: BorderRadius.circular(22),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF315C52), Color(0xFF142A25)],
+      ),
+    ),
+    alignment: Alignment.center,
+    child: const Text(
+      '지금은\n예배시간이 아닙니다 :)',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+        height: 1.45,
+      ),
+    ),
+  );
 }
 
 class WorshipScheduleCard extends StatelessWidget {
@@ -241,17 +280,22 @@ class WorshipScheduleCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
+          if (schedules.isEmpty)
+            const Text(
+              '등록된 예배 일정이 없습니다.',
+              style: TextStyle(color: AppTheme.muted),
+            ),
           for (var index = 0; index < schedules.length; index++) ...[
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    schedules[index].name,
+                    '${schedules[index].dayLabel} · ${schedules[index].name}',
                     style: const TextStyle(fontSize: 15),
                   ),
                 ),
                 Text(
-                  schedules[index].time,
+                  schedules[index].displayTime,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -267,6 +311,24 @@ class WorshipScheduleCard extends StatelessWidget {
           ],
         ],
       ),
+    ),
+  );
+}
+
+class _HomeError extends StatelessWidget {
+  const _HomeError({required this.message, required this.onRetry});
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 48),
+    child: Column(
+      children: [
+        Text(message, textAlign: TextAlign.center),
+        const SizedBox(height: 12),
+        OutlinedButton(onPressed: onRetry, child: const Text('다시 시도')),
+      ],
     ),
   );
 }

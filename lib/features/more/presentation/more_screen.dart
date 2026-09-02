@@ -8,6 +8,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../church/presentation/membership_admin_screen.dart';
 import '../../church/presentation/membership_status_screen.dart';
 import '../../church/presentation/membership_status_view.dart';
+import '../../home/presentation/live_broadcast_admin_screen.dart';
+import '../../home/presentation/worship_schedule_admin_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -102,6 +104,37 @@ class MoreScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
             ),
           ],
+          if (state.hasAny({
+            AppPermission.scheduleManage,
+            AppPermission.liveManage,
+          })) ...[
+            const SizedBox(height: 28),
+            Text('교회 관리', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 10),
+            if (state.has(AppPermission.scheduleManage))
+              _ManagementTile(
+                icon: Icons.event_note_outlined,
+                title: '예배 일정 관리',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const WorshipScheduleAdminScreen(),
+                  ),
+                ),
+              ),
+            if (state.has(AppPermission.liveManage)) ...[
+              if (state.has(AppPermission.scheduleManage))
+                const SizedBox(height: 10),
+              _ManagementTile(
+                icon: Icons.live_tv_outlined,
+                title: 'LIVE 방송 관리',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const LiveBroadcastAdminScreen(),
+                  ),
+                ),
+              ),
+            ],
+          ],
           if (kDebugMode &&
               state.hasAny({
                 AppPermission.memberView,
@@ -193,6 +226,27 @@ class MoreScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ManagementTile extends StatelessWidget {
+  const _ManagementTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    onTap: onTap,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    tileColor: AppTheme.surface,
+    leading: Icon(icon, color: AppTheme.primary),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+    trailing: const Icon(Icons.chevron_right_rounded),
+  );
 }
 
 class _PermissionSwitch extends StatelessWidget {

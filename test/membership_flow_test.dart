@@ -1,4 +1,5 @@
 import 'package:church_app/app/app_state.dart';
+import 'package:church_app/app/app_scope.dart';
 import 'package:church_app/core/auth/auth_repository.dart';
 import 'package:church_app/core/auth/mock_auth_repository.dart';
 import 'package:church_app/core/mock/mock_app_data_store.dart';
@@ -11,7 +12,9 @@ import 'package:church_app/features/church/data/mock_church_repository.dart';
 import 'package:church_app/features/church/data/mock_membership_repository.dart';
 import 'package:church_app/features/home/data/mock_home_repository.dart';
 import 'package:church_app/features/live/data/mock_live_access_service.dart';
+import 'package:church_app/features/more/presentation/more_screen.dart';
 import 'package:church_app/shared/models/user.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ({AppState state, MockAppDataStore store}) createFixture() {
@@ -149,6 +152,72 @@ void main() {
           .map((item) => item.label),
       ['홈', '영상', '더보기'],
     );
+  });
+
+  test('activeChurch 변경 중 이전 교회의 홈 LIVE를 즉시 제거하고 새 교회 데이터를 로드한다', () async {
+    final fixture = createFixture();
+    await fixture.state.signIn(
+      loginId: 'staff@church.app',
+      password: 'test1234',
+    );
+    final memberships = fixture.state.currentUser!.approvedMemberships;
+    await fixture.state.activateChurch(memberships.first);
+    final firstChurchId = fixture.state.homeContent!.live!.churchId;
+
+    final switching = fixture.state.activateChurch(memberships.last);
+    expect(fixture.state.homeContent, isNull);
+    await switching;
+
+    expect(
+      fixture.state.homeContent!.live!.churchId,
+      memberships.last.church.id,
+    );
+    expect(fixture.state.homeContent!.live!.churchId, isNot(firstChurchId));
+  });
+
+  test('live.manage permission은 알려진 권한으로 안전하게 파싱된다', () {
+    expect(AppPermission.fromCode('live.manage'), AppPermission.liveManage);
+    expect(AppPermission.fromCode('future.permission'), isNull);
+  });
+
+  testWidgets('관리 메뉴는 schedule.manage와 live.manage 권한별로 노출된다', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-c')!;
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = user.approvedMemberships.first
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: const MaterialApp(home: MoreScreen()),
+      ),
+    );
+    expect(find.text('예배 일정 관리'), findsNothing);
+    expect(find.text('LIVE 방송 관리'), findsNothing);
+
+    fixture.state.toggleRuntimePermission(AppPermission.scheduleManage);
+    await tester.pump();
+    expect(find.text('예배 일정 관리'), findsOneWidget);
+    expect(find.text('LIVE 방송 관리'), findsNothing);
+
+    fixture.state.toggleRuntimePermission(AppPermission.liveManage);
+    await tester.pump();
+    expect(find.text('LIVE 방송 관리'), findsOneWidget);
+
+    fixture.state.toggleRuntimePermission(AppPermission.scheduleManage);
+    await tester.pump();
+    expect(find.text('예배 일정 관리'), findsNothing);
+    expect(find.text('LIVE 방송 관리'), findsOneWidget);
+
+    fixture.state.toggleRuntimePermission(AppPermission.liveManage);
+    await tester.pump();
+    expect(find.text('LIVE 방송 관리'), findsNothing);
   });
 
   test('Case 6: Role Permission에 추가와 제외를 반영한다', () async {
