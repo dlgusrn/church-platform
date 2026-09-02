@@ -4,6 +4,9 @@ import '../../../app/app_scope.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../live/presentation/live_entry.dart';
+import '../../notices/domain/notice_models.dart';
+import '../../notices/presentation/notice_detail_screen.dart';
+import '../../notices/presentation/notices_screen.dart';
 import '../domain/home_models.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -82,6 +85,10 @@ class HomeScreen extends StatelessWidget {
                       const SizedBox(height: 18),
                       WorshipScheduleCard(schedules: content.orderedSchedules),
                     ],
+                    if (state.has(AppPermission.noticeView)) ...[
+                      const SizedBox(height: 30),
+                      RecentNoticesSection(notices: state.homeNotices),
+                    ],
                     if (state.has(AppPermission.vodView)) ...[
                       const SizedBox(height: 30),
                       Row(
@@ -112,6 +119,79 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class RecentNoticesSection extends StatelessWidget {
+  const RecentNoticesSection({super.key, required this.notices});
+  final List<Notice>? notices;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text('최근 공지', style: Theme.of(context).textTheme.titleLarge),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const NoticesScreen()),
+            ),
+            child: const Text('전체보기  ›'),
+          ),
+        ],
+      ),
+      if (notices == null)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        )
+      else if (notices!.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            '등록된 공지사항이 없습니다.',
+            style: TextStyle(color: AppTheme.muted),
+          ),
+        )
+      else
+        Card(
+          child: Column(
+            children: [
+              for (final notice in notices!.take(3))
+                ListTile(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => NoticeDetailScreen(noticeId: notice.id),
+                    ),
+                  ),
+                  leading: notice.isPinned
+                      ? const Icon(
+                          Icons.push_pin_rounded,
+                          size: 20,
+                          color: AppTheme.primary,
+                        )
+                      : null,
+                  title: Text(
+                    notice.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(notice.listDate),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                ),
+            ],
+          ),
+        ),
+    ],
+  );
 }
 
 class LiveCard extends StatelessWidget {

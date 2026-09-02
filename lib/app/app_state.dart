@@ -52,6 +52,7 @@ class AppState extends ChangeNotifier {
   ChurchMembership? previewMembership;
   ChurchMembership? lastRequestedMembership;
   HomeContent? homeContent;
+  List<Notice>? homeNotices;
   String? homeError;
   List<Church> churches = [];
   List<AppRole> roles = [];
@@ -255,15 +256,23 @@ class AppState extends ChangeNotifier {
     final loadGeneration = _invalidateHomeContent();
     notifyListeners();
     try {
-      final content = await homeRepository.getHomeContent(
+      final homeFuture = homeRepository.getHomeContent(
         membership.church.id,
         includeSchedules: membership.effectivePermissions.contains(
           AppPermission.scheduleView,
         ),
       );
+      final noticesFuture =
+          membership.effectivePermissions.contains(AppPermission.noticeView)
+          ? noticeRepository.listNotices(membership.church.id)
+          : Future.value(const <Notice>[]);
+      final results = await Future.wait<Object>([homeFuture, noticesFuture]);
+      final content = results[0] as HomeContent;
+      final notices = results[1] as List<Notice>;
       if (loadGeneration == _homeLoadGeneration &&
           currentChurchMembership?.id == membership.id) {
         homeContent = content;
+        homeNotices = notices;
         notifyListeners();
       }
     } catch (error) {
@@ -335,13 +344,20 @@ class AppState extends ChangeNotifier {
 
   Future<Notice> saveNotice(NoticeDraft draft, {String? noticeId}) {
     final churchId = activeMembership!.church.id;
-    return noticeId == null
+    final request = noticeId == null
         ? noticeRepository.createNotice(churchId, draft)
         : noticeRepository.updateNotice(churchId, noticeId, draft);
+    return request.then((notice) async {
+      await _reloadHomeNotices(churchId);
+      return notice;
+    });
   }
 
-  Future<void> deleteNotice(String noticeId) =>
-      noticeRepository.deleteNotice(activeMembership!.church.id, noticeId);
+  Future<void> deleteNotice(String noticeId) async {
+    final churchId = activeMembership!.church.id;
+    await noticeRepository.deleteNotice(churchId, noticeId);
+    await _reloadHomeNotices(churchId);
+  }
 
   void requestChurchSelection() {
     if (approvedMemberships.length > 1) {
@@ -497,8 +513,21 @@ class AppState extends ChangeNotifier {
 
   int _invalidateHomeContent() {
     homeContent = null;
+    homeNotices = null;
     homeError = null;
     return ++_homeLoadGeneration;
+  }
+
+  Future<void> _reloadHomeNotices(String churchId) async {
+    if (!has(AppPermission.noticeView) ||
+        activeMembership?.church.id != churchId) {
+      return;
+    }
+    final notices = await noticeRepository.listNotices(churchId);
+    if (activeMembership?.church.id == churchId) {
+      homeNotices = notices;
+      notifyListeners();
+    }
   }
 
   Future<void> handleSessionExpired() async {
