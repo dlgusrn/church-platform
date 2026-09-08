@@ -52,7 +52,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('수정 제목'), findsOneWidget);
     expect(find.text('수정 본문'), findsOneWidget);
-    expect(find.text('고정공지'), findsOneWidget);
+    expect(find.text('고정'), findsOneWidget);
     expect(repository.detailFetches, 1);
   });
 }

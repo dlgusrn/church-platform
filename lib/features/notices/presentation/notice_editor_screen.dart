@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../domain/notice_models.dart';
 
 class NoticeEditorScreen extends StatefulWidget {
@@ -62,44 +63,117 @@ class _NoticeEditorScreenState extends State<NoticeEditorScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.notice == null ? '공지 작성' : '공지 수정')),
     body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: _title,
-              decoration: const InputDecoration(labelText: '제목'),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: TextField(
-                controller: _content,
-                expands: true,
-                maxLines: null,
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                  labelText: '본문',
-                  alignLabelWithHint: true,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageHorizontal,
+            AppSpacing.pageVertical,
+            AppSpacing.pageHorizontal,
+            AppSpacing.xl,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('제목', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: _title,
+                  enabled: !_saving,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(hintText: '공지 제목을 입력하세요'),
                 ),
-              ),
+                const SizedBox(height: AppSpacing.xl),
+                Text('본문', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: _content,
+                  enabled: !_saving,
+                  minLines: 8,
+                  maxLines: null,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  textAlignVertical: TextAlignVertical.top,
+                  decoration: const InputDecoration(
+                    hintText: '공지 내용을 입력하세요',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                _PinnedSetting(
+                  value: _pinned,
+                  enabled: !_saving,
+                  onChanged: (value) => setState(() => _pinned = value),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _EditorError(message: _error!),
+                ],
+                const SizedBox(height: AppSpacing.xl),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.textOnPrimary,
+                          ),
+                        )
+                      : const Text('저장'),
+                ),
+              ],
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('고정공지'),
-              value: _pinned,
-              onChanged: _saving
-                  ? null
-                  : (value) => setState(() => _pinned = value),
-            ),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.redAccent)),
-            const SizedBox(height: 8),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: Text(_saving ? '저장 중...' : '저장'),
-            ),
-          ],
+          ),
         ),
+      ),
+    ),
+  );
+}
+
+class _PinnedSetting extends StatelessWidget {
+  const _PinnedSetting({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: AppColors.surfaceMuted,
+    child: SwitchListTile(
+      title: const Text('공지 상단에 고정'),
+      subtitle: const Text('중요한 공지를 목록 상단에 표시합니다.'),
+      value: value,
+      onChanged: enabled ? onChanged : null,
+    ),
+  );
+}
+
+class _EditorError extends StatelessWidget {
+  const _EditorError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: const BoxDecoration(
+        color: AppColors.dangerSoft,
+        borderRadius: BorderRadius.all(AppRadii.small),
+      ),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: AppColors.danger),
       ),
     ),
   );

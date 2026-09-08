@@ -15,8 +15,12 @@ class ChurchRepository:
             ).all()
         )
 
-    def get_by_id(self, church_id: int) -> Church | None:
-        return self.session.get(Church, church_id)
+    def get_by_id(self, church_id: int, *, for_update: bool = False) -> Church | None:
+        if not for_update:
+            return self.session.get(Church, church_id)
+        return self.session.scalar(
+            select(Church).where(Church.id == church_id).with_for_update()
+        )
 
     def get_by_code(self, code: str) -> Church | None:
         return self.session.scalar(select(Church).where(Church.code == code))

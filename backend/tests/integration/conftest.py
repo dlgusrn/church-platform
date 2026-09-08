@@ -26,6 +26,10 @@ EXPECTED_TABLES = {
     "worship_schedules",
     "live_broadcasts",
     "notices",
+    "popup_notices",
+    "video_categories",
+    "video_collections",
+    "videos",
 }
 
 

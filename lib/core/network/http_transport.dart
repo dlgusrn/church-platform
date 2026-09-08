@@ -14,9 +14,10 @@ abstract interface class HttpTransport {
 }
 
 class HttpTransportResponse {
-  const HttpTransportResponse({required this.statusCode, required this.body});
+  const HttpTransportResponse({required this.statusCode, required this.body, this.bodyBytes});
   final int statusCode;
   final String body;
+  final List<int>? bodyBytes;
 }
 
 HttpTransport createPlatformHttpTransport() =>

@@ -56,6 +56,9 @@ NoticeUpdatePermission = Annotated[
 NoticeDeletePermission = Annotated[
     None, Depends(require_church_permission(PermissionCode.NOTICE_DELETE))
 ]
+PopupNoticeManagePermission = Annotated[
+    None, Depends(require_church_permission(PermissionCode.POPUP_NOTICE_MANAGE))
+]
 
 
 def require_approved_membership(

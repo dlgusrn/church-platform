@@ -11,6 +11,7 @@ from app.core.exceptions import (
     ForbiddenError,
     NotFoundError,
     RequestValidationError,
+    PopupNoticeOverlapError,
 )
 
 
@@ -50,9 +51,12 @@ def register_exception_handlers(application: FastAPI) -> None:
             response_status = status.HTTP_403_FORBIDDEN
         elif isinstance(exc, RequestValidationError):
             response_status = status.HTTP_422_UNPROCESSABLE_CONTENT
+        content = {"detail": str(exc)}
+        if isinstance(exc, PopupNoticeOverlapError):
+            content["code"] = exc.code
         return JSONResponse(
             status_code=response_status,
-            content={"detail": str(exc)},
+            content=content,
             headers=headers,
         )
 

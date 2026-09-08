@@ -7,3 +7,7 @@ JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+SYNOLOGY_BASE_URL=https://nas.example.com:5001
+SYNOLOGY_USERNAME=replace-with-service-account
+SYNOLOGY_PASSWORD=replace-with-secret
+SYNOLOGY_VIDEO_ROOT=/replace-with-video-root

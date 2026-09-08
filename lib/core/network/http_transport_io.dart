@@ -21,10 +21,8 @@ class IoHttpTransport implements HttpTransport {
     headers.forEach(request.headers.set);
     if (bodyBytes != null) request.add(bodyBytes);
     final response = await request.close();
-    return HttpTransportResponse(
-      statusCode: response.statusCode,
-      body: await utf8.decoder.bind(response).join(),
-    );
+    final bytes = await response.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+    return HttpTransportResponse(statusCode: response.statusCode, body: utf8.decode(bytes, allowMalformed: true), bodyBytes: bytes);
   }
 
   @override

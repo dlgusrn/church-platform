@@ -2,6 +2,7 @@ from app.models.base import Base
 from app.models.church import Church
 from app.models.live_broadcast import LiveBroadcast
 from app.models.notice import Notice
+from app.models.popup_notice import PopupNotice
 from app.models.membership import ChurchMembership
 from app.models.permission import Permission
 from app.models.permission_override import MembershipPermissionOverride
@@ -9,6 +10,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.role import Role, RolePermission
 from app.models.user import User
 from app.models.worship_schedule import WorshipSchedule
+from app.models.video import Video, VideoCategory, VideoCollection
 
 __all__ = [
     "Base",
@@ -16,6 +18,7 @@ __all__ = [
     "ChurchMembership",
     "LiveBroadcast",
     "Notice",
+    "PopupNotice",
     "MembershipPermissionOverride",
     "Permission",
     "RefreshToken",
@@ -23,4 +26,7 @@ __all__ = [
     "RolePermission",
     "User",
     "WorshipSchedule",
+    "Video",
+    "VideoCategory",
+    "VideoCollection",
 ]

@@ -114,6 +114,11 @@ def test_schedule_crud_inactive_permissions_and_church_scope(
     url = f"/api/v1/churches/{live_scenario.church.id}/worship-schedules"
     listed = client.get(url, headers=live_scenario.headers(live_scenario.admin))
     assert [item["id"] for item in listed.json()] == [schedule["id"]]
+    member_active = client.get(
+        url, headers=live_scenario.headers(live_scenario.member)
+    )
+    assert member_active.status_code == 200
+    assert [item["id"] for item in member_active.json()] == [schedule["id"]]
 
     updated = client.patch(
         f"{url}/{schedule['id']}",
@@ -128,9 +133,14 @@ def test_schedule_crud_inactive_permissions_and_church_scope(
         headers=live_scenario.headers(live_scenario.admin),
     )
     assert [item["id"] for item in inactive.json()] == [schedule["id"]]
-
-    assert client.get(
+    member_after_inactive = client.get(
         url, headers=live_scenario.headers(live_scenario.member)
+    )
+    assert member_after_inactive.status_code == 200
+    assert member_after_inactive.json() == []
+    assert client.get(
+        f"{url}?include_inactive=true",
+        headers=live_scenario.headers(live_scenario.member),
     ).status_code == 403
     assert client.post(
         url,

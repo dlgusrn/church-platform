@@ -19,6 +19,10 @@ EXPECTED_TABLES = {
     "worship_schedules",
     "live_broadcasts",
     "notices",
+    "popup_notices",
+    "video_categories",
+    "video_collections",
+    "videos",
 }
 
 EXPECTED_UNIQUE_COLUMNS = {
@@ -53,6 +57,20 @@ EXPECTED_FOREIGN_KEYS = {
         ("church_id", "churches"),
         ("author_membership_id", "church_memberships"),
     },
+    "popup_notices": {
+        ("church_id", "churches"),
+        ("author_membership_id", "church_memberships"),
+    },
+    "video_categories": {("church_id", "churches")},
+    "video_collections": {
+        ("church_id", "churches"),
+        ("category_id", "video_categories"),
+    },
+    "videos": {
+        ("church_id", "churches"),
+        ("category_id", "video_categories"),
+        ("collection_id", "video_collections"),
+    },
 }
 
 EXPECTED_COLUMNS = {
@@ -73,12 +91,30 @@ EXPECTED_COLUMNS = {
         "is_pinned",
         "published_at",
     },
+    "popup_notices": {
+        "church_id", "author_membership_id", "title", "content", "image_storage_key",
+        "image_content_type", "image_size", "starts_at", "ends_at", "is_active",
+    },
+    "video_categories": {"church_id", "name", "sort_order", "is_active"},
+    "video_collections": {
+        "church_id", "category_id", "title", "description", "recorded_at",
+        "sort_order", "is_published",
+    },
+    "videos": {
+        "church_id", "category_id", "collection_id", "title", "description",
+        "source_type", "source_ref", "recorded_at", "duration_seconds",
+        "thumbnail_ref", "is_published",
+    },
 }
 
 REMOVED_COLUMNS = {
     "worship_schedules": {"name", "day_of_week", "start_time"},
     "live_broadcasts": {"worship_schedule_id"},
     "notices": set(),
+    "popup_notices": set(),
+    "video_categories": set(),
+    "video_collections": set(),
+    "videos": set(),
 }
 
 

@@ -6,6 +6,10 @@ class ConflictError(ApplicationError):
     pass
 
 
+class PopupNoticeOverlapError(ConflictError):
+    code = "popup_notice_period_overlap"
+
+
 class AuthenticationError(ApplicationError):
     pass
 

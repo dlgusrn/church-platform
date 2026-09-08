@@ -28,11 +28,27 @@ class ApiClient {
   Future<dynamic> patch(String path, {Map<String, dynamic>? body}) =>
       request('PATCH', path, body: body);
   Future<dynamic> delete(String path) => request('DELETE', path);
+  Future<List<int>> getBytes(String path) async {
+    final response = await _sendRaw('GET', path);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(statusCode: response.statusCode, message: _errorMessage(_decode(response.body), response.statusCode));
+    }
+    return response.bodyBytes ?? utf8.encode(response.body);
+  }
+
+  Future<dynamic> putMultipart(String path, {required List<int> bytes, required String filename}) {
+    final boundary = 'church-app-${DateTime.now().microsecondsSinceEpoch}';
+    final prefix = '--$boundary\r\nContent-Disposition: form-data; name="image"; filename="$filename"\r\nContent-Type: application/octet-stream\r\n\r\n';
+    final suffix = '\r\n--$boundary--\r\n';
+    return request('PUT', path, rawBytes: [...utf8.encode(prefix), ...bytes, ...utf8.encode(suffix)], contentType: 'multipart/form-data; boundary=$boundary');
+  }
 
   Future<dynamic> request(
     String method,
     String path, {
     Map<String, dynamic>? body,
+    List<int>? rawBytes,
+    String? contentType,
     bool authenticated = true,
     bool retryAfterRefresh = true,
   }) async {
@@ -46,10 +62,10 @@ class ApiClient {
         uri: requestUri,
         headers: {
           'Accept': 'application/json',
-          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Type': contentType ?? 'application/json; charset=utf-8',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-        bodyBytes: body == null ? null : utf8.encode(jsonEncode(body)),
+        bodyBytes: rawBytes ?? (body == null ? null : utf8.encode(jsonEncode(body))),
       );
       _debugLog('[API] $method $requestUri -> ${response.statusCode}');
       if (response.statusCode == 401 && authenticated && retryAfterRefresh) {
@@ -96,6 +112,12 @@ class ApiClient {
         details: error,
       );
     }
+  }
+
+  Future<HttpTransportResponse> _sendRaw(String method, String path) async {
+    final uri = _resolve(path);
+    final token = await tokenStore.readAccessToken();
+    return transport.send(method: method, uri: uri, headers: {'Accept': '*/*', if (token != null) 'Authorization': 'Bearer $token'});
   }
 
   Future<void> saveTokens(dynamic json) async {

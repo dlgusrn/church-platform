@@ -33,11 +33,12 @@ void main() {
     await tester.pump();
     expect(repository.scheduleFetches, 1);
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('예배시간 등록'));
     await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), '테스트 예배');
     await tester.enterText(fields.at(1), '주일 오전');
+    await tester.ensureVisible(find.text('저장'));
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 
@@ -63,11 +64,12 @@ void main() {
     await tester.pump();
     expect(repository.liveFetches, 1);
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('LIVE 방송 등록'));
     await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), '특별 방송');
     await tester.enterText(fields.at(1), 'https://youtu.be/test-live');
+    await tester.ensureVisible(find.text('저장'));
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 
@@ -75,7 +77,116 @@ void main() {
     expect(repository.liveCreates, 1);
     expect(repository.liveFetches, 2);
   });
+
+  testWidgets('예배시간 관리는 active와 inactive 항목을 Backend 순서대로 표시한다', (
+    tester,
+  ) async {
+    final repository = RecordingHomeRepository()
+      ..schedules.addAll([
+        _schedule('second', '둘째 예배', false),
+        _schedule('first', '첫째 예배', true),
+      ]);
+    final state = createAdminState(repository);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: WorshipScheduleAdminScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('활성'), findsOneWidget);
+    expect(find.text('비활성'), findsOneWidget);
+    expect(find.text('둘째 예배'), findsOneWidget);
+    expect(find.text('첫째 예배'), findsOneWidget);
+    expect(find.byTooltip('예배시간 등록'), findsOneWidget);
+  });
+
+  testWidgets('LIVE 관리 목록은 모든 status를 text label로 표시한다', (tester) async {
+    final repository = RecordingHomeRepository()
+      ..broadcasts.addAll([
+        _broadcast('scheduled', LiveBroadcastStatus.scheduled),
+        _broadcast('live', LiveBroadcastStatus.live),
+        _broadcast('ended', LiveBroadcastStatus.ended),
+      ]);
+    final state = createAdminState(repository);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: LiveBroadcastAdminScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('예정'), findsOneWidget);
+    expect(find.text('방송 중'), findsOneWidget);
+    expect(find.text('종료'), findsOneWidget);
+    expect(find.text('https://youtu.be/test-live'), findsNothing);
+    expect(find.byTooltip('LIVE 방송 등록'), findsOneWidget);
+  });
+
+  testWidgets('LIVE custom type에서만 사용자 지정 예배명 input을 표시한다', (tester) async {
+    final state = createAdminState(RecordingHomeRepository());
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: LiveBroadcastAdminScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('LIVE 방송 등록'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('사용자 지정 예배명'), findsNothing);
+    await tester.tap(find.text('특별성회'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('직접 입력').last);
+    await tester.pumpAndSettle();
+    expect(find.text('사용자 지정 예배명'), findsOneWidget);
+  });
+
+  testWidgets('live.access만으로 LIVE 관리 action은 보이지 않는다', (tester) async {
+    final repository = RecordingHomeRepository();
+    final state = createAdminState(repository)
+      ..toggleRuntimePermission(AppPermission.liveManage);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: LiveBroadcastAdminScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(state.has(AppPermission.liveAccess), isTrue);
+    expect(find.byTooltip('LIVE 방송 등록'), findsNothing);
+    expect(find.text('LIVE 방송을 관리할 권한이 없습니다.'), findsOneWidget);
+  });
 }
+
+WorshipSchedule _schedule(String id, String title, bool active) =>
+    WorshipSchedule(
+      id: id,
+      churchId: 'sky-gate',
+      title: title,
+      dayLabel: '주일',
+      time: '11:00:00',
+      displayOrder: active ? 1 : 2,
+      isActive: active,
+    );
+
+LiveBroadcast _broadcast(String id, LiveBroadcastStatus status) =>
+    LiveBroadcast(
+      id: id,
+      churchId: 'sky-gate',
+      broadcastDate: DateTime(2026, 9, 6),
+      worshipType: LiveWorshipType.special,
+      displayTitle: '$id 방송',
+      youtubeUrl: 'https://youtu.be/test-live',
+      status: status,
+    );
 
 AppState createAdminState(HomeRepository homeRepository) {
   final store = MockAppDataStore();

@@ -14,6 +14,10 @@ import '../features/home/domain/home_models.dart';
 import '../features/live/data/live_access_service.dart';
 import '../features/notices/data/notice_repository.dart';
 import '../features/notices/domain/notice_models.dart';
+import '../features/popup_notices/data/popup_notice_repository.dart';
+import '../features/popup_notices/data/popup_suppression_store.dart';
+import '../features/popup_notices/domain/popup_notice_models.dart';
+import '../features/video/data/video_repository.dart';
 import '../shared/models/church.dart';
 import '../shared/models/user.dart';
 
@@ -36,7 +40,10 @@ class AppState extends ChangeNotifier {
     required this.homeRepository,
     required this.liveAccessService,
     required this.noticeRepository,
-  });
+    this.videoRepository,
+    this.popupNoticeRepository,
+    PopupSuppressionStore? popupSuppressionStore,
+  }) : _popupSuppressionStore = popupSuppressionStore;
 
   final AuthRepository authRepository;
   final ChurchRepository churchRepository;
@@ -45,6 +52,11 @@ class AppState extends ChangeNotifier {
   final HomeRepository homeRepository;
   final LiveAccessService liveAccessService;
   final NoticeRepository noticeRepository;
+  final VideoRepository? videoRepository;
+  final PopupNoticeRepository? popupNoticeRepository;
+  PopupSuppressionStore? _popupSuppressionStore;
+  PopupSuppressionStore get popupSuppressionStore =>
+      _popupSuppressionStore ??= PopupSuppressionStore();
 
   AppSessionStatus status = AppSessionStatus.restoring;
   AppUser? currentUser;
@@ -62,6 +74,11 @@ class AppState extends ChangeNotifier {
   String? membershipError;
   final Set<AppPermission> _runtimeAddedPermissions = {};
   int _homeLoadGeneration = 0;
+  int _popupGeneration = 0;
+  PopupNotice? pendingPopupNotice;
+  bool popupFetchInProgress = false;
+  final Set<String> _popupSessionSuppressed = {};
+  final Set<String> _popupClaims = {};
 
   ChurchMembership? get currentChurchMembership =>
       activeMembership ?? previewMembership;
@@ -89,6 +106,31 @@ class AppState extends ChangeNotifier {
       effectivePermissions.contains(permission);
   bool hasAny(Set<AppPermission> permissions) =>
       EffectivePermission.hasAny(effectivePermissions, permissions);
+  String _popupKey(String churchId, String popupId) => '$churchId/$popupId';
+
+  bool claimPendingPopup(PopupNotice popup) =>
+      _popupClaims.add(_popupKey(popup.churchId, popup.id));
+  void consumePopup(PopupNotice popup) {
+    if (pendingPopupNotice?.id == popup.id &&
+        pendingPopupNotice?.churchId == popup.churchId) {
+      pendingPopupNotice = null;
+      notifyListeners();
+    }
+  }
+
+  void dismissPopupForSession(PopupNotice popup) {
+    _popupSessionSuppressed.add(_popupKey(popup.churchId, popup.id));
+    consumePopup(popup);
+  }
+
+  Future<void> dismissPopupForToday(PopupNotice popup) async {
+    await popupSuppressionStore.suppressToday(
+      popup.churchId,
+      popup.id,
+      DateTime.now(),
+    );
+    dismissPopupForSession(popup);
+  }
 
   Future<void> restoreSession() async {
     status = AppSessionStatus.restoring;
@@ -250,6 +292,7 @@ class AppState extends ChangeNotifier {
     activeMembership = membership;
     status = AppSessionStatus.authenticated;
     await _loadHome(membership);
+    _loadCurrentPopup(membership);
   }
 
   Future<void> _loadHome(ChurchMembership membership) async {
@@ -258,9 +301,7 @@ class AppState extends ChangeNotifier {
     try {
       final homeFuture = homeRepository.getHomeContent(
         membership.church.id,
-        includeSchedules: membership.effectivePermissions.contains(
-          AppPermission.scheduleView,
-        ),
+        includeSchedules: true,
       );
       final noticesFuture =
           membership.effectivePermissions.contains(AppPermission.noticeView)
@@ -358,6 +399,41 @@ class AppState extends ChangeNotifier {
     await noticeRepository.deleteNotice(churchId, noticeId);
     await _reloadHomeNotices(churchId);
   }
+
+  Future<List<PopupNotice>> loadPopupNotices() async {
+    final churchId = activeMembership?.church.id;
+    if (churchId == null ||
+        !has(AppPermission.popupNoticeManage) ||
+        popupNoticeRepository == null)
+      return const [];
+    return popupNoticeRepository!.list(churchId);
+  }
+
+  Future<PopupNotice> savePopupNotice(PopupNoticeDraft draft, {String? id}) {
+    final churchId = activeMembership!.church.id;
+    return id == null
+        ? popupNoticeRepository!.create(churchId, draft)
+        : popupNoticeRepository!.update(churchId, id, draft);
+  }
+
+  Future<void> deletePopupNotice(String id) =>
+      popupNoticeRepository!.delete(activeMembership!.church.id, id);
+  Future<PopupNotice> setPopupNoticeActive(String id, bool value) =>
+      popupNoticeRepository!.setActive(activeMembership!.church.id, id, value);
+  Future<PopupNotice> uploadPopupImage(
+    String id,
+    List<int> bytes,
+    String filename,
+  ) => popupNoticeRepository!.uploadImage(
+    activeMembership!.church.id,
+    id,
+    bytes,
+    filename,
+  );
+  Future<PopupNotice> removePopupImage(String id) =>
+      popupNoticeRepository!.removeImage(activeMembership!.church.id, id);
+  Future<List<int>> popupImageBytes(String path) =>
+      popupNoticeRepository!.imageBytes(path);
 
   void requestChurchSelection() {
     if (approvedMemberships.length > 1) {
@@ -499,6 +575,9 @@ class AppState extends ChangeNotifier {
     authError = null;
     registrationError = null;
     membershipError = null;
+    _popupSessionSuppressed.clear();
+    _popupClaims.clear();
+    pendingPopupNotice = null;
     notifyListeners();
   }
 
@@ -509,6 +588,43 @@ class AppState extends ChangeNotifier {
     _invalidateHomeContent();
     roles = [];
     _runtimeAddedPermissions.clear();
+    _popupGeneration++;
+    pendingPopupNotice = null;
+  }
+
+  Future<void> _loadCurrentPopup(ChurchMembership membership) async {
+    final repository = popupNoticeRepository;
+    if (repository == null || !membership.isApproved) return;
+    final generation = ++_popupGeneration;
+    popupFetchInProgress = true;
+    notifyListeners();
+    try {
+      final popup = await repository.current(membership.church.id);
+      if (generation != _popupGeneration ||
+          activeMembership?.id != membership.id ||
+          popup == null)
+        return;
+      final key = _popupKey(popup.churchId, popup.id);
+      if (_popupSessionSuppressed.contains(key) ||
+          await popupSuppressionStore.isSuppressedToday(
+            popup.churchId,
+            popup.id,
+            DateTime.now(),
+          ))
+        return;
+      if (generation == _popupGeneration &&
+          activeMembership?.id == membership.id) {
+        pendingPopupNotice = popup;
+        notifyListeners();
+      }
+    } catch (_) {
+      // A popup failure must not block authenticated home entry.
+    } finally {
+      if (generation == _popupGeneration) {
+        popupFetchInProgress = false;
+        notifyListeners();
+      }
+    }
   }
 
   int _invalidateHomeContent() {

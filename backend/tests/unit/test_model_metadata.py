@@ -13,6 +13,7 @@ EXPECTED_TABLES = {
     "worship_schedules",
     "live_broadcasts",
     "notices",
+    "popup_notices",
 }
 
 

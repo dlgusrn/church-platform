@@ -6,7 +6,7 @@ import '../../../app/app_state.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/permission/app_role.dart';
 import '../../../core/permission/effective_permission.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../shared/models/user.dart';
 
 class MembershipAdminScreen extends StatefulWidget {
@@ -45,13 +45,9 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!kDebugMode) return const SizedBox.shrink();
     final state = AppScope.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('가입 승인 관리'),
-        backgroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('가입 승인 관리')),
       body: FutureBuilder<List<ChurchMembership>>(
         future: _pending,
         builder: (context, snapshot) {
@@ -62,7 +58,7 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                 child: Text(
                   state.membershipError ?? '가입 요청을 불러오지 못했습니다.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.redAccent),
+                  style: const TextStyle(color: AppColors.danger),
                 ),
               ),
             );
@@ -71,7 +67,12 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
             return const Center(child: CircularProgressIndicator());
           final memberships = snapshot.data!;
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageHorizontal,
+              AppSpacing.md,
+              AppSpacing.pageHorizontal,
+              32,
+            ),
             children: [
               Text('신규 가입 요청', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
@@ -81,7 +82,7 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                     padding: EdgeInsets.all(20),
                     child: Text(
                       '승인 대기 중인 가입 요청이 없습니다.',
-                      style: TextStyle(color: AppTheme.muted),
+                      style: TextStyle(color: AppColors.textSecondary),
                     ),
                   ),
                 ),
@@ -125,7 +126,8 @@ class _MembershipAdminScreenState extends State<MembershipAdminScreen> {
                   ),
                 ),
               ),
-              if (state.has(AppPermission.permissionManage) &&
+              if (kDebugMode &&
+                  state.has(AppPermission.permissionManage) &&
                   state.activeMembership != null) ...[
                 const SizedBox(height: 18),
                 Text(
@@ -377,10 +379,10 @@ class _MembershipManagementSheetState
                           }
                         },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
+                    foregroundColor: AppColors.danger,
                     minimumSize: const Size.fromHeight(52),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: AppRadii.control,
                     ),
                   ),
                   child: const Text('거절'),
@@ -389,7 +391,7 @@ class _MembershipManagementSheetState
                 const SizedBox(height: 10),
                 Text(
                   state.membershipError!,
-                  style: const TextStyle(color: Colors.redAccent),
+                  style: const TextStyle(color: AppColors.danger),
                 ),
               ],
             ],
@@ -414,7 +416,7 @@ class _PermissionCodes extends StatelessWidget {
         Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         if (sorted.isEmpty)
-          const Text('없음', style: TextStyle(color: AppTheme.muted))
+          const Text('없음', style: TextStyle(color: AppColors.textSecondary))
         else
           Wrap(
             spacing: 6,
@@ -427,7 +429,7 @@ class _PermissionCodes extends StatelessWidget {
                     style: const TextStyle(fontSize: 11),
                   ),
                   side: BorderSide.none,
-                  backgroundColor: AppTheme.surface,
+                  backgroundColor: AppColors.surface,
                 ),
             ],
           ),

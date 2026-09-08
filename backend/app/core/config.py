@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=30, gt=0)
     jwt_refresh_token_expire_days: int = Field(default=30, gt=0)
     cors_origins: str = ""
+    popup_media_root: str = "./popup-media"
+    popup_media_staging_ttl_hours: int = Field(default=24, gt=0)
+    synology_base_url: str | None = None
+    synology_username: str | None = None
+    synology_password: str | None = None
+    synology_video_root: str | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

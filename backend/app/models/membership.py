@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.church import Church
     from app.models.permission_override import MembershipPermissionOverride
     from app.models.notice import Notice
+    from app.models.popup_notice import PopupNotice
     from app.models.role import Role
     from app.models.user import User
 
@@ -52,3 +53,6 @@ class ChurchMembership(TimestampMixin, Base):
         back_populates="membership", cascade="all, delete-orphan"
     )
     authored_notices: Mapped[list["Notice"]] = relationship(back_populates="author_membership")
+    authored_popup_notices: Mapped[list["PopupNotice"]] = relationship(
+        back_populates="author_membership"
+    )

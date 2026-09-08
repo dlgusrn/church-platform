@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../../shared/models/user.dart';
 
 extension MembershipStatusView on MembershipStatus {
@@ -10,14 +11,14 @@ extension MembershipStatusView on MembershipStatus {
   };
 
   Color get color => switch (this) {
-    MembershipStatus.pending => const Color(0xFF9B6814),
-    MembershipStatus.approved => const Color(0xFF25705D),
-    MembershipStatus.rejected => const Color(0xFFB04444),
+    MembershipStatus.pending => AppColors.warning,
+    MembershipStatus.approved => AppColors.success,
+    MembershipStatus.rejected => AppColors.danger,
   };
 
   Color get background => switch (this) {
-    MembershipStatus.pending => const Color(0xFFFFF2D8),
-    MembershipStatus.approved => const Color(0xFFE1F2EC),
-    MembershipStatus.rejected => const Color(0xFFFFE8E8),
+    MembershipStatus.pending => AppColors.warningSoft,
+    MembershipStatus.approved => AppColors.successSoft,
+    MembershipStatus.rejected => AppColors.dangerSoft,
   };
 }

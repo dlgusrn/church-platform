@@ -2,8 +2,8 @@ from fastapi import APIRouter, Query, status
 
 from app.dependencies.auth import CurrentUser, DatabaseSession
 from app.dependencies.permissions import (
+    ApprovedChurchMembership,
     ScheduleManagePermission,
-    ScheduleViewPermission,
 )
 from app.schemas.worship_schedule import (
     WorshipScheduleCreateRequest,
@@ -21,7 +21,7 @@ def list_worship_schedules(
     church_id: int,
     current_user: CurrentUser,
     session: DatabaseSession,
-    _permission: ScheduleViewPermission,
+    _membership: ApprovedChurchMembership,
     include_inactive: bool = Query(default=False),
 ) -> list[WorshipScheduleResponse]:
     if include_inactive:

@@ -200,8 +200,12 @@ void main() {
         child: const MaterialApp(home: MoreScreen()),
       ),
     );
+    expect(find.text('직원 관리자'), findsOneWidget);
+    expect(find.text('하늘문교회'), findsAtLeastNWidgets(1));
+    expect(find.text('교회 관리'), findsNothing);
     expect(find.text('예배 일정 관리'), findsNothing);
     expect(find.text('LIVE 방송 관리'), findsNothing);
+    expect(find.text('팝업공지 관리'), findsNothing);
 
     fixture.state.toggleRuntimePermission(AppPermission.scheduleManage);
     await tester.pump();
@@ -212,6 +216,14 @@ void main() {
     await tester.pump();
     expect(find.text('LIVE 방송 관리'), findsOneWidget);
 
+    fixture.state.toggleRuntimePermission(AppPermission.popupNoticeManage);
+    await tester.pump();
+    expect(find.text('팝업공지 관리'), findsOneWidget);
+
+    fixture.state.toggleRuntimePermission(AppPermission.popupNoticeManage);
+    await tester.pump();
+    expect(find.text('팝업공지 관리'), findsNothing);
+
     fixture.state.toggleRuntimePermission(AppPermission.scheduleManage);
     await tester.pump();
     expect(find.text('예배 일정 관리'), findsNothing);
@@ -220,6 +232,7 @@ void main() {
     fixture.state.toggleRuntimePermission(AppPermission.liveManage);
     await tester.pump();
     expect(find.text('LIVE 방송 관리'), findsNothing);
+    expect(find.text('교회 관리'), findsNothing);
   });
 
   testWidgets('공지사항 메뉴는 notice.view 권한에 따라 노출된다', (tester) async {
@@ -248,6 +261,60 @@ void main() {
     fixture.state.toggleRuntimePermission(AppPermission.noticeView);
     await tester.pump();
     expect(find.text('공지사항'), findsOneWidget);
+  });
+
+  testWidgets('live.access만으로는 교회 관리나 LIVE 관리 메뉴가 노출되지 않는다', (tester) async {
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-c')!;
+    final memberMembership = user.approvedMemberships.last;
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = memberMembership
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: const MaterialApp(home: MoreScreen()),
+      ),
+    );
+
+    expect(fixture.state.has(AppPermission.liveAccess), isTrue);
+    expect(fixture.state.has(AppPermission.liveManage), isFalse);
+    expect(find.text('LIVE 방송 관리'), findsNothing);
+    expect(find.text('교회 관리'), findsNothing);
+  });
+
+  testWidgets('More의 교회 변경과 로그아웃은 기존 AppState flow를 호출한다', (tester) async {
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-c')!;
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = user.approvedMemberships.first
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: MaterialApp(
+          home: AnimatedBuilder(
+            animation: fixture.state,
+            builder: (context, _) =>
+                fixture.state.status == AppSessionStatus.signedOut
+                ? const Scaffold(body: Center(child: Text('signed out')))
+                : const MoreScreen(),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('교회 변경'));
+    expect(fixture.state.status, AppSessionStatus.selectingChurch);
+
+    fixture.state.status = AppSessionStatus.authenticated;
+    await tester.tap(find.text('로그아웃'));
+    await tester.pump();
+    expect(fixture.state.status, AppSessionStatus.signedOut);
+    expect(find.text('signed out'), findsOneWidget);
   });
 
   test('Case 6: Role Permission에 추가와 제외를 반영한다', () async {

@@ -21,6 +21,9 @@ import 'features/home/data/api_home_repository.dart';
 import 'features/live/data/mock_live_access_service.dart';
 import 'features/notices/data/api_notice_repository.dart';
 import 'features/notices/data/mock_notice_repository.dart';
+import 'features/popup_notices/data/api_popup_notice_repository.dart';
+import 'features/video/data/api_video_repository.dart';
+import 'features/video/data/mock_video_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,6 +38,7 @@ Future<void> main() async {
       homeRepository: MockHomeRepository(),
       liveAccessService: MockLiveAccessService(),
       noticeRepository: MockNoticeRepository(),
+      videoRepository: MockVideoRepository(),
     );
   } else {
     Uri baseUri;
@@ -59,6 +63,8 @@ Future<void> main() async {
       homeRepository: ApiHomeRepository(client),
       liveAccessService: MockLiveAccessService(),
       noticeRepository: ApiNoticeRepository(client),
+      videoRepository: ApiVideoRepository(client),
+      popupNoticeRepository: ApiPopupNoticeRepository(client),
     );
     client.onSessionExpired = appState.handleSessionExpired;
   }

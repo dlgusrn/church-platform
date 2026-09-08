@@ -9,8 +9,10 @@ if TYPE_CHECKING:
     from app.models.live_broadcast import LiveBroadcast
     from app.models.membership import ChurchMembership
     from app.models.notice import Notice
+    from app.models.popup_notice import PopupNotice
     from app.models.role import Role
     from app.models.worship_schedule import WorshipSchedule
+    from app.models.video import Video, VideoCategory, VideoCollection
 
 
 class Church(TimestampMixin, Base):
@@ -32,3 +34,9 @@ class Church(TimestampMixin, Base):
     notices: Mapped[list["Notice"]] = relationship(
         back_populates="church", cascade="all, delete-orphan"
     )
+    popup_notices: Mapped[list["PopupNotice"]] = relationship(
+        back_populates="church", cascade="all, delete-orphan"
+    )
+    videos: Mapped[list["Video"]] = relationship(back_populates="church", cascade="all, delete-orphan")
+    video_categories: Mapped[list["VideoCategory"]] = relationship(back_populates="church", cascade="all, delete-orphan")
+    video_collections: Mapped[list["VideoCollection"]] = relationship(back_populates="church", cascade="all, delete-orphan")

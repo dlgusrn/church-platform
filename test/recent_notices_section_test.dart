@@ -19,10 +19,12 @@ void main() {
         ),
       ),
     );
-    expect(find.text('최근 공지'), findsOneWidget);
+    expect(find.text('최근 공지사항'), findsOneWidget);
     expect(find.text('고정 공지'), findsOneWidget);
     expect(find.text('네 번째'), findsNothing);
-    expect(find.byIcon(Icons.push_pin_rounded), findsOneWidget);
+    expect(find.text('고정 · 2026.09.01'), findsOneWidget);
+    expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
+    expect(find.text('홈에 표시되면 안 되는 본문'), findsNothing);
   });
   testWidgets('최근 공지는 빈 목록을 compact empty state로 표시한다', (tester) async {
     await tester.pumpWidget(
@@ -40,7 +42,7 @@ Notice _notice(String id, String title, bool pinned) {
     id: id,
     churchId: 'church',
     title: title,
-    content: '',
+    content: '홈에 표시되면 안 되는 본문',
     isPinned: pinned,
     publishedAt: at,
     createdAt: at,

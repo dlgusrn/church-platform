@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
 import '../../../core/permission/app_permission.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../domain/notice_models.dart';
 import 'notice_editor_screen.dart';
 
@@ -41,13 +41,15 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('공지사항을 삭제하시겠습니까?'),
+        content: const Text('삭제한 공지사항은 복구할 수 없습니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('취소'),
           ),
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
             child: const Text('삭제'),
           ),
         ],
@@ -80,11 +82,13 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
             actions: [
               if (notice != null && state.has(AppPermission.noticeUpdate))
                 IconButton(
+                  tooltip: '공지 수정',
                   onPressed: () => _edit(notice),
                   icon: const Icon(Icons.edit_outlined),
                 ),
-              if (state.has(AppPermission.noticeDelete))
+              if (notice != null && state.has(AppPermission.noticeDelete))
                 IconButton(
+                  tooltip: '공지 삭제',
                   onPressed: _deleting ? null : _delete,
                   icon: const Icon(Icons.delete_outline),
                 ),
@@ -95,28 +99,33 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
               : notice == null
               ? const Center(child: CircularProgressIndicator())
               : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.pageVertical,
+                    AppSpacing.pageHorizontal,
+                    32,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (notice.isPinned)
-                        const Chip(
-                          avatar: Icon(Icons.push_pin_rounded, size: 16),
-                          label: Text('고정공지'),
-                        ),
+                      if (notice.isPinned) const _PinnedLabel(),
                       Text(
                         notice.title,
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: Theme.of(context).textTheme.headlineMedium,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Text(
                         notice.detailDate,
-                        style: const TextStyle(color: AppTheme.muted),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      const Divider(height: 32),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                        child: Divider(),
+                      ),
                       SelectableText(
                         notice.content,
-                        style: const TextStyle(fontSize: 16, height: 1.6),
+                        style: Theme.of(context).textTheme.bodyLarge
+                            ?.copyWith(height: 1.7),
                       ),
                     ],
                   ),
@@ -125,4 +134,41 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
       },
     );
   }
+}
+
+class _PinnedLabel extends StatelessWidget {
+  const _PinnedLabel();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+    child: Semantics(
+      label: '고정 공지',
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: const BoxDecoration(
+          color: AppColors.primarySoft,
+          borderRadius: BorderRadius.all(AppRadii.small),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.push_pin_outlined, size: 16, color: AppColors.primary),
+            SizedBox(width: AppSpacing.xs),
+            Text(
+              '고정',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

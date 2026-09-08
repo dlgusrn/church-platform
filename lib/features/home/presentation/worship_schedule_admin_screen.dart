@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/permission/app_permission.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../domain/home_models.dart';
 
 class WorshipScheduleAdminScreen extends StatefulWidget {
@@ -33,173 +34,364 @@ class _WorshipScheduleAdminScreenState
     });
   }
 
-  Future<void> _edit([WorshipSchedule? schedule]) async {
-    final draft = await showDialog<WorshipScheduleDraft>(
-      context: context,
-      builder: (_) => _ScheduleDialog(schedule: schedule),
+  Future<void> _openEditor([WorshipSchedule? schedule]) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => WorshipScheduleEditorScreen(schedule: schedule),
+      ),
     );
-    if (draft == null || !mounted) return;
-    try {
-      await AppScope.of(context)
-          .saveWorshipSchedule(draft, scheduleId: schedule?.id);
-      if (mounted) _reload();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
-      }
-    }
+    if (saved == true) _reload();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('예배 일정 관리')),
-    floatingActionButton: FloatingActionButton(
-      onPressed: _edit,
-      child: const Icon(Icons.add),
-    ),
-    body: FutureBuilder<List<WorshipSchedule>>(
-      future: _items,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          if (snapshot.hasError)
-            return Center(child: Text('${snapshot.error}'));
-          return const Center(child: CircularProgressIndicator());
-        }
-        final items = snapshot.data!;
-        if (items.isEmpty) return const Center(child: Text('등록된 예배 일정이 없습니다.'));
-        return ListView.separated(
-          padding: const EdgeInsets.all(20),
-          itemCount: items.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (_, index) {
-            final item = items[index];
-            return Card(
-              child: ListTile(
-                onTap: () => _edit(item),
-                title: Text(item.name),
-                subtitle: Text(
-                  '${item.dayLabel} · ${item.displayTime} · 순서 ${item.displayOrder}',
-                ),
-                trailing: Text(
-                  item.isActive ? '사용' : '미사용',
-                  style: TextStyle(
-                    color: item.isActive ? AppTheme.primary : AppTheme.muted,
+  Widget build(BuildContext context) {
+    final canManage = AppScope.of(context).has(AppPermission.scheduleManage);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('예배시간 관리'),
+        actions: [
+          if (canManage)
+            IconButton(
+              tooltip: '예배시간 등록',
+              onPressed: _openEditor,
+              icon: const Icon(Icons.add_rounded),
+            ),
+        ],
+      ),
+      body: !canManage
+          ? const _AdminUnavailable(message: '예배시간을 관리할 권한이 없습니다.')
+          : FutureBuilder<List<WorshipSchedule>>(
+              future: _items,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const _AdminUnavailable(
+                    message: '예배시간을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.',
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final items = snapshot.data!;
+                if (items.isEmpty) return const _WorshipEmpty();
+                return ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.pageVertical,
+                    AppSpacing.pageHorizontal,
+                    32,
                   ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
+                  itemCount: items.length,
+                  itemBuilder: (_, index) => Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index == items.length - 1 ? 0 : AppSpacing.sm,
+                    ),
+                    child: _WorshipScheduleRow(
+                      schedule: items[index],
+                      onTap: () => _openEditor(items[index]),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
 }
 
-class _ScheduleDialog extends StatefulWidget {
-  const _ScheduleDialog({this.schedule});
+class WorshipScheduleEditorScreen extends StatefulWidget {
+  const WorshipScheduleEditorScreen({super.key, this.schedule});
+
   final WorshipSchedule? schedule;
 
   @override
-  State<_ScheduleDialog> createState() => _ScheduleDialogState();
+  State<WorshipScheduleEditorScreen> createState() =>
+      _WorshipScheduleEditorScreenState();
 }
 
-class _ScheduleDialogState extends State<_ScheduleDialog> {
-  late final TextEditingController _name;
-  late final TextEditingController _order;
+class _WorshipScheduleEditorScreenState
+    extends State<WorshipScheduleEditorScreen> {
+  late final TextEditingController _title;
   late final TextEditingController _dayLabel;
+  late final TextEditingController _order;
   late TimeOfDay _time;
-  late bool _active;
+  late bool _isActive;
+  bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     final schedule = widget.schedule;
-    _name = TextEditingController(text: schedule?.title ?? '');
+    _title = TextEditingController(text: schedule?.title ?? '');
     _dayLabel = TextEditingController(text: schedule?.dayLabel ?? '');
     _order = TextEditingController(text: '${schedule?.displayOrder ?? 0}');
-    if (schedule == null) {
-      _time = TimeOfDay.now();
-    } else {
-      final parts = schedule.time.split(':');
-      _time = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-    }
-    _active = schedule?.isActive ?? true;
+    final parts = schedule?.time.split(':');
+    _time = parts == null
+        ? TimeOfDay.now()
+        : TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    _isActive = schedule?.isActive ?? true;
   }
 
   @override
   void dispose() {
-    _name.dispose();
+    _title.dispose();
     _dayLabel.dispose();
     _order.dispose();
     super.dispose();
   }
 
+  Future<void> _pickTime() async {
+    final selected = await showTimePicker(context: context, initialTime: _time);
+    if (selected != null && mounted) setState(() => _time = selected);
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    if (_title.text.trim().isEmpty || _dayLabel.text.trim().isEmpty) {
+      setState(() => _error = '예배명과 요일 안내를 입력해주세요.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await AppScope.of(context).saveWorshipSchedule(
+        WorshipScheduleDraft(
+          title: _title.text.trim(),
+          dayLabel: _dayLabel.text.trim(),
+          time:
+              '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}:00',
+          displayOrder: int.tryParse(_order.text) ?? 0,
+          isActive: _isActive,
+        ),
+        scheduleId: widget.schedule?.id,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) setState(() => _error = '저장하지 못했습니다. 입력 내용을 확인해주세요.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.schedule == null ? '예배 일정 추가' : '예배 일정 수정'),
-    content: SingleChildScrollView(
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(widget.schedule == null ? '예배시간 등록' : '예배시간 수정'),
+    ),
+    body: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageHorizontal,
+          AppSpacing.pageVertical,
+          AppSpacing.pageHorizontal,
+          AppSpacing.xl,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _FieldLabel('예배명'),
+            TextField(
+              controller: _title,
+              enabled: !_saving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(hintText: '예배명을 입력하세요'),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            const _FieldLabel('요일/안내 문구'),
+            TextField(
+              controller: _dayLabel,
+              enabled: !_saving,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(hintText: '예: 주일 오전'),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            const _FieldLabel('시작 시간'),
+            Card(
+              child: ListTile(
+                enabled: !_saving,
+                title: Text(_time.format(context)),
+                trailing: const Icon(Icons.schedule_outlined),
+                onTap: _pickTime,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            const _FieldLabel('표시 순서'),
+            TextField(
+              controller: _order,
+              enabled: !_saving,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                hintText: '0',
+                helperText: '숫자가 작을수록 먼저 표시됩니다.',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Card(
+              color: AppColors.surfaceMuted,
+              child: SwitchListTile(
+                title: const Text('활성화'),
+                subtitle: const Text('활성화된 예배시간만 일반 사용자에게 표시됩니다.'),
+                value: _isActive,
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _isActive = value),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _FormError(message: _error!),
+            ],
+            const SizedBox(height: AppSpacing.xl),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: _saving ? const _ButtonProgress() : const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _WorshipScheduleRow extends StatelessWidget {
+  const _WorshipScheduleRow({required this.schedule, required this.onTap});
+
+  final WorshipSchedule schedule;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: ListTile(
+      onTap: onTap,
+      title: Text(
+        schedule.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.xs),
+        child: Text('${schedule.dayLabel} · ${schedule.displayTime}'),
+      ),
+      trailing: _ScheduleStatusBadge(isActive: schedule.isActive),
+    ),
+  );
+}
+
+class _ScheduleStatusBadge extends StatelessWidget {
+  const _ScheduleStatusBadge({required this.isActive});
+
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: isActive ? '활성' : '비활성',
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: isActive ? AppColors.successSoft : AppColors.surfaceMuted,
+        borderRadius: AppRadii.control,
+      ),
+      child: Text(
+        isActive ? '활성' : '비활성',
+        style: TextStyle(
+          color: isActive ? AppColors.success : AppColors.textSecondary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
+
+class _WorshipEmpty extends StatelessWidget {
+  const _WorshipEmpty();
+
+  @override
+  Widget build(BuildContext context) => const _AdminUnavailable(
+    icon: Icons.event_note_outlined,
+    message: '등록된 예배시간이 없습니다.',
+  );
+}
+
+class _AdminUnavailable extends StatelessWidget {
+  const _AdminUnavailable({required this.message, this.icon});
+
+  final String message;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: '예배명'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _dayLabel,
-            decoration: const InputDecoration(labelText: '요일/안내 문구'),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('시작 시간'),
-            trailing: Text(_time.format(context)),
-            onTap: () async {
-              final selected = await showTimePicker(
-                context: context,
-                initialTime: _time,
-              );
-              if (selected != null) setState(() => _time = selected);
-            },
-          ),
-          TextField(
-            controller: _order,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '표시 순서'),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('활성화'),
-            value: _active,
-            onChanged: (value) => setState(() => _active = value),
+          if (icon != null) ...[
+            Icon(icon, size: 36, color: AppColors.textMuted),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('취소'),
+  );
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    child: Text(label, style: Theme.of(context).textTheme.titleMedium),
+  );
+}
+
+class _FormError extends StatelessWidget {
+  const _FormError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: const BoxDecoration(
+        color: AppColors.dangerSoft,
+        borderRadius: BorderRadius.all(AppRadii.small),
       ),
-      FilledButton(
-        onPressed: () {
-          if (_name.text.trim().isEmpty || _dayLabel.text.trim().isEmpty)
-            return;
-          Navigator.pop(
-            context,
-            WorshipScheduleDraft(
-              title: _name.text.trim(),
-              dayLabel: _dayLabel.text.trim(),
-              time:
-                  '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}:00',
-              displayOrder: int.tryParse(_order.text) ?? 0,
-              isActive: _active,
-            ),
-          );
-        },
-        child: const Text('저장'),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: AppColors.danger),
       ),
-    ],
+    ),
+  );
+}
+
+class _ButtonProgress extends StatelessWidget {
+  const _ButtonProgress();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox(
+    width: 20,
+    height: 20,
+    child: CircularProgressIndicator(
+      strokeWidth: 2,
+      color: AppColors.textOnPrimary,
+    ),
   );
 }

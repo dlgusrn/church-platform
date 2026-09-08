@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_scope.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../shared/models/user.dart';
+import 'church_ui_components.dart';
 
 class JoinRequestCompleteScreen extends StatelessWidget {
   const JoinRequestCompleteScreen({super.key, required this.onboarding});
@@ -13,86 +15,87 @@ class JoinRequestCompleteScreen extends StatelessWidget {
     final membership = state.lastRequestedMembership!;
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 44, 24, 28),
-          child: Column(
-            children: [
-              const Spacer(),
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE4EFEB),
-                  borderRadius: BorderRadius.circular(26),
-                ),
-                child: const Icon(
-                  Icons.mark_email_read_outlined,
-                  size: 36,
-                  color: AppTheme.primary,
-                ),
-              ),
-              const SizedBox(height: 28),
-              Text(
-                '가입 신청이 완료되었습니다',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                membership.church.name,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                '관리자 승인 후\n교회의 콘텐츠와 기능을 이용할 수 있습니다.',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.55, color: AppTheme.muted),
-              ),
-              const SizedBox(height: 30),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          '현재 상태',
-                          style: TextStyle(fontWeight: FontWeight.w700),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageHorizontal,
+              44,
+              AppSpacing.pageHorizontal,
+              28,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
+                  children: [
+                    const Spacer(),
+                    Container(
+                      width: 76,
+                      height: 76,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: AppRadii.card,
+                      ),
+                      child: const Icon(
+                        Icons.mark_email_read_outlined,
+                        size: 36,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    Text(
+                      '가입 신청이 완료되었습니다',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      membership.church.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      '관리자 승인 후\n교회의 콘텐츠와 기능을 이용할 수 있습니다.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 30),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                        child: Row(
+                          children: const [
+                            Expanded(
+                              child: Text(
+                                '현재 상태',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            MembershipStatusBadge(
+                              status: MembershipStatus.pending,
+                            ),
+                          ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF2D8),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          '승인 대기',
-                          style: TextStyle(
-                            color: Color(0xFF9B6814),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                    ),
+                    const Spacer(flex: 2),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () async {
+                          if (onboarding || state.activeMembership == null) {
+                            await state.continueFromApproval();
+                          } else if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        child: const Text('확인'),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              const Spacer(flex: 2),
-              FilledButton(
-                onPressed: () async {
-                  if (onboarding || state.activeMembership == null) {
-                    await state.continueFromApproval();
-                  } else if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: const Text('확인'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
