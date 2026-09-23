@@ -89,7 +89,9 @@ class VideoRead(BaseModel):
     title: str
     description: str | None
     source_type: VideoSourceType
-    source_ref: str
+    # Synology references are internal root-relative NAS paths.  They are
+    # deliberately omitted from the member-facing library response.
+    source_ref: str | None
     recorded_at: datetime
     duration_seconds: int | None
     thumbnail_ref: str | None
@@ -97,6 +99,44 @@ class VideoRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     playback: dict[str, str] | None = None
+
+
+class VideoPlaybackSessionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "synology"
+    playback_url: str
+    playback_token: str
+    expires_at: datetime
+
+
+class VideoReviewPageRead(BaseModel):
+    items: list[VideoRead]
+    total: int
+    published_count: int
+    unpublished_count: int
+    offset: int
+    limit: int
+
+
+class VideoBulkPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    video_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class VideoBulkPublishItemRead(BaseModel):
+    status: str
+    video_id: int
+    error_code: str | None
+
+
+class VideoBulkPublishRead(BaseModel):
+    requested_count: int
+    published_count: int
+    already_published_count: int
+    failed_count: int
+    items: list[VideoBulkPublishItemRead]
 
 
 class YouTubeVideoCreate(BaseModel):
@@ -136,6 +176,7 @@ class SynologyCandidateRead(BaseModel):
     relative_path: str
     filename: str
     file_size: int
+    extension: str
     inferred_title: str
     inferred_recorded_at: datetime | None
     category_suggestion: str | None
@@ -143,23 +184,42 @@ class SynologyCandidateRead(BaseModel):
     collection_suggestion: str | None
     matched_collection_id: int | None
     duplicate: bool
+    already_imported: bool
+    needs_review: bool
     warnings: list[str]
+    review_reasons: list[str]
 
 
 class SynologyPreviewRead(BaseModel):
     snapshot_token: str
     summary: dict[str, int]
     candidates: list[SynologyCandidateRead]
+    folder_facets: list[str]
+    selectable_source_refs: list[str]
     offset: int
     limit: int
 
 
 class SynologyImportRequest(BaseModel):
     snapshot_token: str = Field(min_length=16, max_length=100)
-    source_refs: list[str] = Field(min_length=1, max_length=1000)
+    source_refs: list[str] = Field(min_length=1, max_length=200)
+
+
+class SynologyImportItemRead(BaseModel):
+    status: str
+    video_id: int | None
+    error_code: str | None
 
 
 class SynologyImportRead(BaseModel):
+    requested_count: int
+    imported_count: int
+    already_imported_count: int
+    failed_count: int
+    needs_review_count: int
+    items: list[SynologyImportItemRead]
+    # Kept during the Stage 9-4B API transition for existing administrator
+    # consumers; new bulk clients use the explicit count fields above.
     created: int
     skipped: int
     failed: int

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 import '../../../app/app_scope.dart';
@@ -620,13 +622,17 @@ class VideoDetail extends StatelessWidget {
           aspectRatio: 16 / 9,
           child: ClipRRect(
             borderRadius: AppRadii.card,
-            child: video.sourceType == VideoSourceType.youtube
-                ? YouTubePreview(videoId: video.sourceRef)
-                : Thumbnail(
-                    video: video,
-                    width: double.infinity,
-                    height: double.infinity,
-                  ),
+            child: switch (video.sourceType) {
+              VideoSourceType.youtube => YouTubePreview(
+                videoId: video.sourceRef,
+              ),
+              VideoSourceType.synology => SynologyVideoPlayer(video: video),
+              _ => Thumbnail(
+                video: video,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            },
           ),
         ),
         const SizedBox(height: 24),
@@ -712,3 +718,247 @@ class _YouTubePreviewState extends State<YouTubePreview>
     child: YoutubePlayer(controller: controller),
   );
 }
+
+class SynologyVideoPlayer extends StatefulWidget {
+  const SynologyVideoPlayer({super.key, required this.video});
+  final VideoItem video;
+
+  @override
+  State<SynologyVideoPlayer> createState() => _SynologyVideoPlayerState();
+}
+
+class _SynologyVideoPlayerState extends State<SynologyVideoPlayer>
+    with WidgetsBindingObserver {
+  VideoPlayerController? controller;
+  Object? error;
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final old = controller;
+    setState(() {
+      loading = true;
+      error = null;
+      controller = null;
+    });
+    await old?.dispose();
+    try {
+      final state = AppScope.of(context);
+      final session = await state.videoRepository!.createPlaybackSession(
+        widget.video.churchId,
+        widget.video.id,
+      );
+      final next = VideoPlayerController.networkUrl(
+        session.url,
+        httpHeaders: session.playbackHeaders,
+      );
+      await next.initialize();
+      if (!mounted) {
+        await next.dispose();
+        return;
+      }
+      setState(() {
+        controller = next;
+        loading = false;
+      });
+    } catch (value) {
+      if (mounted) {
+        setState(() {
+          error = value;
+          loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) controller?.pause();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null || controller == null) {
+      return Center(
+        child: TextButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('재생을 다시 시도'),
+        ),
+      );
+    }
+    return _VideoPlaybackSurface(
+      controller: controller!,
+      onFullscreen: () =>
+          Navigator.of(context)
+              .push(_FullscreenVideoRoute(controller: controller!)),
+    );
+  }
+}
+
+class _FullscreenVideoRoute extends PageRouteBuilder<void> {
+  _FullscreenVideoRoute({required VideoPlayerController controller})
+    : super(
+        opaque: true,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (_, __, ___) => _FullscreenVideo(controller: controller),
+      );
+}
+
+class _FullscreenVideo extends StatefulWidget {
+  const _FullscreenVideo({required this.controller});
+  final VideoPlayerController controller;
+
+  @override
+  State<_FullscreenVideo> createState() => _FullscreenVideoState();
+}
+
+class _FullscreenVideoState extends State<_FullscreenVideo> {
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: _VideoPlaybackSurface(
+      controller: widget.controller,
+      fullscreen: true,
+      onFullscreen: () => Navigator.of(context).pop(),
+    ),
+  );
+}
+
+class _VideoPlaybackSurface extends StatelessWidget {
+  const _VideoPlaybackSurface({
+    required this.controller,
+    required this.onFullscreen,
+    this.fullscreen = false,
+  });
+  final VideoPlayerController controller;
+  final VoidCallback onFullscreen;
+  final bool fullscreen;
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: controller,
+        builder: (context, value, _) => Stack(
+          alignment: Alignment.center,
+          children: [
+            const Positioned.fill(child: ColoredBox(color: Colors.black)),
+            Center(
+              child: AspectRatio(
+                aspectRatio: value.aspectRatio == 0
+                    ? 16 / 9
+                    : value.aspectRatio,
+                child: VideoPlayer(controller),
+              ),
+            ),
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () =>
+                      value.isPlaying ? controller.pause() : controller.play(),
+                ),
+              ),
+            ),
+            Positioned(
+              left: fullscreen ? 20 : 8,
+              right: fullscreen ? 20 : 8,
+              bottom: fullscreen ? 20 : 2,
+              child: _VideoPlaybackControls(
+                controller: controller,
+                value: value,
+                fullscreen: fullscreen,
+                onFullscreen: onFullscreen,
+              ),
+            ),
+            if (!value.isPlaying)
+              const IgnorePointer(
+                child: Icon(
+                  Icons.play_circle_fill_rounded,
+                  color: Colors.white,
+                  size: 56,
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+class _VideoPlaybackControls extends StatelessWidget {
+  const _VideoPlaybackControls({
+    required this.controller,
+    required this.value,
+    required this.fullscreen,
+    required this.onFullscreen,
+  });
+  final VideoPlayerController controller;
+  final VideoPlayerValue value;
+  final bool fullscreen;
+  final VoidCallback onFullscreen;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      VideoProgressIndicator(controller, allowScrubbing: true),
+      Row(
+        children: [
+          IconButton(
+            color: Colors.white,
+            tooltip: value.isPlaying ? 'Pause' : 'Play',
+            onPressed: () =>
+                value.isPlaying ? controller.pause() : controller.play(),
+            icon: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
+          ),
+          Expanded(
+            child: Text(
+              '${_videoTime(value.position)} / ${_videoTime(value.duration)}',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          IconButton(
+            color: Colors.white,
+            tooltip: fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+            onPressed: onFullscreen,
+            icon: Icon(fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+String _videoTime(Duration value) =>
+    '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';

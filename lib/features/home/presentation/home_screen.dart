@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/app_scope.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/theme/app_tokens.dart';
+import '../../../shared/widgets/overflow_only_scroll_physics.dart';
 import '../../live/presentation/live_entry.dart';
 import '../../notices/domain/notice_models.dart';
 import '../../notices/presentation/notice_detail_screen.dart';
@@ -20,6 +21,7 @@ class HomeScreen extends StatelessWidget {
       body: SafeArea(
         bottom: false,
         child: CustomScrollView(
+          physics: const OverflowOnlyScrollPhysics(),
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(

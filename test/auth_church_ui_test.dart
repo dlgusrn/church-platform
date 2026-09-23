@@ -9,6 +9,7 @@ import 'package:church_app/features/church/data/mock_church_repository.dart';
 import 'package:church_app/features/church/data/mock_membership_repository.dart';
 import 'package:church_app/features/church/presentation/church_selection_screen.dart';
 import 'package:church_app/features/church/presentation/church_ui_components.dart';
+import 'package:church_app/features/church/presentation/join_request_complete_screen.dart';
 import 'package:church_app/features/church/presentation/membership_status_screen.dart';
 import 'package:church_app/features/home/data/mock_home_repository.dart';
 import 'package:church_app/features/live/data/mock_live_access_service.dart';
@@ -129,5 +130,66 @@ void main() {
         .widgetList<ChurchCard>(find.byType(ChurchCard))
         .toList();
     expect(cards.map((card) => card.enabled), everyElement(isFalse));
+  });
+
+  testWidgets('가입 신청 완료 화면은 일반 viewport에서 본문을 스크롤하지 않는다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final fixture = createFixture();
+    fixture.state.lastRequestedMembership = ChurchMembership(
+      id: 'pending',
+      userId: 'user',
+      church: const Church(id: 'church', name: '테스트 교회'),
+      status: MembershipStatus.pending,
+      requestedAt: DateTime(2026),
+    );
+
+    await tester.pumpWidget(
+      appFor(fixture.state, const JoinRequestCompleteScreen(onboarding: true)),
+    );
+
+    final button = find.widgetWithText(FilledButton, '승인 여부 확인');
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(button, findsOneWidget);
+    expect(scrollable.position.maxScrollExtent, 0);
+
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('가입 신청 완료 화면은 작은 높이에서 본문을 스크롤하고 확인 버튼을 유지한다', (tester) async {
+    tester.view.physicalSize = const Size(320, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final fixture = createFixture();
+    fixture.state.lastRequestedMembership = ChurchMembership(
+      id: 'pending',
+      userId: 'user',
+      church: const Church(id: 'church', name: '테스트 교회'),
+      status: MembershipStatus.pending,
+      requestedAt: DateTime(2026),
+    );
+
+    await tester.pumpWidget(
+      appFor(fixture.state, const JoinRequestCompleteScreen(onboarding: true)),
+    );
+
+    final button = find.widgetWithText(FilledButton, '승인 여부 확인');
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(button, findsOneWidget);
+    expect(tester.getRect(button).bottom, lessThanOrEqualTo(360));
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, greaterThan(0));
+    expect(tester.takeException(), isNull);
   });
 }

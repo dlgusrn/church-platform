@@ -17,6 +17,8 @@ from app.schemas.video import (
     VideoCollectionUpdate,
     VideoCreate,
     VideoRead,
+    VideoReviewPageRead,
+    VideoBulkPublishRead,
     VideoUpdate,
     YouTubeVideoCreate,
 )
@@ -34,23 +36,86 @@ class VideoService:
 
     def list_videos(self, church_id: int, user_id: int, **filters: int | bool | None) -> list[VideoRead]:
         self._require_church(church_id)
-        self._require_read_permission(church_id, user_id)
-        # The ordinary library feed and archive expose published metadata only.
-        if filters.get("published") is None:
+        if not self._has_manage_permission(church_id, user_id):
+            self._require_read_permission(church_id, user_id)
+            if filters.get("published") is False:
+                raise ForbiddenError("Unpublished videos require video management permission")
+            # Never trust a client filter to broaden a viewer's library.
             filters["published"] = True
-        return [self._video_response(video) for video in self.videos.list_for_church(church_id, **filters)]
+        elif filters.get("published") is None:
+            filters["published"] = True
+        return [self._video_response(video, public=True) for video in self.videos.list_for_church(church_id, **filters)]
 
     def get_video(self, church_id: int, video_id: int, user_id: int) -> VideoRead:
         self._require_church(church_id)
-        self._require_read_permission(church_id, user_id)
-        return self._video_response(self._video_or_raise(church_id, video_id))
+        can_manage = self._has_manage_permission(church_id, user_id)
+        if not can_manage:
+            # Preserve church-isolation behavior before looking up an ID.
+            self._require_read_permission(church_id, user_id)
+        video = self._video_or_raise(church_id, video_id)
+        if not video.is_published and not can_manage:
+            raise NotFoundError("Video not found")
+        return self._video_response(video, public=True)
 
     def archive(self, church_id: int, user_id: int, *, published: bool | None = None) -> list[VideoArchiveResponse]:
         self._require_church(church_id)
-        self._require_read_permission(church_id, user_id)
-        if published is None:
+        if not self._has_manage_permission(church_id, user_id):
+            self._require_read_permission(church_id, user_id)
+            if published is False:
+                raise ForbiddenError("Unpublished videos require video management permission")
+            published = True
+        elif published is None:
             published = True
         return [VideoArchiveResponse(year=year, month=month, video_count=count) for year, month, count in self.videos.archive_for_church(church_id, published=published)]
+
+    def review_videos(self, church_id: int, user_id: int, *, status: str, offset: int, limit: int) -> VideoReviewPageRead:
+        self._require_church(church_id)
+        self._require_manage_permission(church_id, user_id)
+        if status not in {"all", "published", "unpublished"}:
+            raise RequestValidationError("Video review status is invalid")
+        published = {"published": True, "unpublished": False}.get(status)
+        items, total = self.videos.list_page_for_church(church_id, published=published, offset=offset, limit=limit)
+        published_count = len(self.videos.list_for_church(church_id, published=True))
+        unpublished_count = len(self.videos.list_for_church(church_id, published=False))
+        return VideoReviewPageRead(
+            items=[self._video_response(video, public=True) for video in items],
+            total=total,
+            published_count=published_count,
+            unpublished_count=unpublished_count,
+            offset=offset,
+            limit=limit,
+        )
+
+    def bulk_publish(self, church_id: int, user_id: int, video_ids: list[int]) -> VideoBulkPublishRead:
+        self._require_church(church_id)
+        self._require_manage_permission(church_id, user_id)
+        requested = list(dict.fromkeys(video_ids))
+        published = already_published = failed = 0
+        items: list[dict[str, object]] = []
+        try:
+            for video_id in requested:
+                video = self.videos.get_for_church(video_id, church_id, for_update=True)
+                if video is None:
+                    failed += 1
+                    items.append({"status": "failed", "video_id": video_id, "error_code": "video_not_found"})
+                elif video.is_published:
+                    already_published += 1
+                    items.append({"status": "already_published", "video_id": video_id, "error_code": None})
+                else:
+                    video.is_published = True
+                    published += 1
+                    items.append({"status": "published", "video_id": video_id, "error_code": None})
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+        return VideoBulkPublishRead(
+            requested_count=len(requested),
+            published_count=published,
+            already_published_count=already_published,
+            failed_count=failed,
+            items=items,
+        )
 
     def create_video(self, church_id: int, user_id: int, request: VideoCreate) -> VideoRead:
         self._require_church(church_id)
@@ -174,6 +239,10 @@ class VideoService:
     def _require_manage_permission(self, church_id: int, user_id: int) -> None:
         self._require_any_permission(church_id, user_id, {PermissionCode.MEDIA_VIDEO_MANAGE.value})
 
+    def _has_manage_permission(self, church_id: int, user_id: int) -> bool:
+        membership = self.memberships.get_by_user_and_church(user_id, church_id)
+        return membership is not None and PermissionCode.MEDIA_VIDEO_MANAGE.value in get_permission_breakdown(membership).effective_permissions
+
     def _require_any_permission(self, church_id: int, user_id: int, required: set[str]) -> None:
         membership = self.memberships.get_by_user_and_church(user_id, church_id)
         if membership is None or not (get_permission_breakdown(membership).effective_permissions & required):
@@ -211,9 +280,11 @@ class VideoService:
         return video
 
     @staticmethod
-    def _video_response(video: Video) -> VideoRead:
+    def _video_response(video: Video, *, public: bool = False) -> VideoRead:
         response = VideoRead.model_validate(video)
-        if video.source_type is VideoSourceType.YOUTUBE:
+        if public and video.source_type == VideoSourceType.SYNOLOGY:
+            response.source_ref = None
+        if video.source_type == VideoSourceType.YOUTUBE:
             response.playback = {"type": "youtube", "video_id": video.source_ref}
         return response
 

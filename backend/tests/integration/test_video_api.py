@@ -1,15 +1,16 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.database import get_db
-from app.core.security import create_access_token
+from app.core.database import get_db, get_playback_session
+from app.core.security import create_access_token, create_video_playback_token
 from app.main import app
 from app.models.church import Church
 from app.models.enums import MembershipStatus, PermissionEffect
@@ -18,9 +19,14 @@ from app.models.permission import Permission
 from app.models.permission_override import MembershipPermissionOverride
 from app.models.role import Role, RolePermission
 from app.models.user import User
-from app.models.video import Video, VideoCategory, VideoCollection
+from app.models.video import Video, VideoCategory, VideoCollection, VideoSourceType
 from app.scripts.seed_permissions import seed_permissions_and_roles
 from app.services.permission_service import get_permission_breakdown
+from app.services.video_sources.synology.client import SynologyEntry
+from app.services.video_sources.synology.parser import infer_candidate
+from app.services.video_sources.synology.service import MAX_BATCH_SIZE, Snapshot, SynologyImportService, _snapshots
+from app.services.video_playback_service import VideoPlaybackService
+from app.core.exceptions import RequestValidationError
 
 pytestmark = pytest.mark.integration
 
@@ -45,7 +51,11 @@ def client(mysql_session: Session) -> Iterator[TestClient]:
     def override_database() -> Iterator[Session]:
         yield mysql_session
 
+    def override_playback_database() -> Session:
+        return sessionmaker(bind=mysql_session.get_bind(), autoflush=False, expire_on_commit=False)()
+
     app.dependency_overrides[get_db] = override_database
+    app.dependency_overrides[get_playback_session] = override_playback_database
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -122,6 +132,340 @@ def test_video_permissions_effective_permissions_and_mutation(client: TestClient
     effective = get_permission_breakdown(manager_membership).effective_permissions
     assert "media.video.manage" in effective
     assert "media.video.download" not in effective
+
+
+def test_synology_playback_session_is_scoped_and_member_response_hides_source_ref(
+    client: TestClient, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    created = create_video(
+        client, scenario, title="NAS", source_type="synology", source_ref="2026/private.mp4",
+        recorded_at="2026-01-03T10:00:00Z",
+    )
+    listed = client.get(videos_url(scenario), headers=scenario.headers(scenario.vod_user))
+    assert listed.status_code == 200
+    assert listed.json()[0]["source_ref"] is None
+    session = client.post(
+        f"{videos_url(scenario)}/{created['id']}/playback-session",
+        headers=scenario.headers(scenario.vod_user),
+    )
+    assert session.status_code == 200, session.text
+    body = session.json()
+    assert body["type"] == "synology"
+    assert body["playback_url"] == "/api/v1/playback"
+    assert "?" not in body["playback_url"]
+    assert body["playback_token"]
+    assert "source_ref" not in body
+    assert client.post(
+        f"{videos_url(scenario)}/{created['id']}/playback-session",
+        headers=scenario.headers(scenario.no_permission_user),
+    ).status_code == 403
+
+
+def test_playback_endpoint_relays_range_over_http(
+    client: TestClient, video_scenario: VideoScenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario = video_scenario
+    created = create_video(
+        client, scenario, title="NAS range", source_type="synology", source_ref="2026/video.mp4",
+        recorded_at="2026-01-03T10:00:00Z",
+    )
+
+    class FakeDownloadClient:
+        closed = False
+        range_header: str | None = None
+        async def connect(self) -> None: pass
+        async def open_download(self, _path: str, *, range_header: str | None, method: str) -> httpx.Response:
+            self.range_header = range_header
+            return httpx.Response(206, headers={
+                "content-type": "video/mp4", "content-length": "3",
+                "content-range": "bytes 0-2/10", "accept-ranges": "bytes",
+            }, content=b"abc")
+        async def close(self) -> None: self.closed = True
+
+    fake = FakeDownloadClient()
+    monkeypatch.setattr(VideoPlaybackService, "_download_client", lambda _: fake)
+    monkeypatch.setattr(VideoPlaybackService, "_absolute_path", staticmethod(lambda _: "/test/video.mp4"))
+    session = client.post(
+        f"{videos_url(scenario)}/{created['id']}/playback-session",
+        headers=scenario.headers(scenario.vod_user),
+    )
+    response = client.get(session.json()["playback_url"], headers={
+        "Range": "bytes=0-2", "X-Playback-Token": session.json()["playback_token"],
+    })
+    assert response.status_code == 206
+    assert response.content == b"abc"
+    assert response.headers["content-range"] == "bytes 0-2/10"
+    assert response.headers["content-length"] == "3"
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert fake.range_header == "bytes=0-2"
+    head = client.head(session.json()["playback_url"], headers={
+        "Range": "bytes=0-2", "X-Playback-Token": session.json()["playback_token"],
+    })
+    assert head.status_code == 206
+    assert head.headers["content-range"] == "bytes 0-2/10"
+    assert head.headers["content-length"] == "3"
+
+
+def test_playback_header_is_required_and_invalid_tokens_are_rejected(
+    client: TestClient, mysql_session: Session, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    created = create_video(
+        client, scenario, title="NAS header auth", source_type="synology", source_ref="2026/header.mp4",
+        recorded_at="2026-01-03T10:00:00Z",
+    )
+    playback_url = client.post(
+        f"{videos_url(scenario)}/{created['id']}/playback-session", headers=scenario.headers(scenario.vod_user),
+    ).json()["playback_url"]
+    assert client.get(playback_url).status_code == 401
+    assert client.get(playback_url, headers={"X-Playback-Token": "invalid"}).status_code == 401
+    expired = create_video_playback_token(
+        scenario.vod_user.id, scenario.church.id, created["id"], expires_delta=timedelta(seconds=-1),
+    )
+    assert client.get(playback_url, headers={"X-Playback-Token": expired}).status_code == 401
+    issued = client.post(
+        f"{videos_url(scenario)}/{created['id']}/playback-session", headers=scenario.headers(scenario.vod_user),
+    ).json()
+    membership = mysql_session.scalar(select(ChurchMembership).where(
+        ChurchMembership.user_id == scenario.vod_user.id,
+        ChurchMembership.church_id == scenario.church.id,
+    ))
+    assert membership is not None
+    membership.status = MembershipStatus.PENDING
+    mysql_session.commit()
+    assert client.get(issued["playback_url"], headers={"X-Playback-Token": issued["playback_token"]}).status_code == 403
+
+
+class _FakeSynologyClient:
+    def __init__(self) -> None:
+        self.list_calls = 0
+        self.entries = {
+            "/root": [
+                SynologyEntry("/root/arbitrary", "arbitrary", True),
+                SynologyEntry("/root/2026", "2026", True),
+            ],
+            "/root/arbitrary": [
+                SynologyEntry("/root/arbitrary/20260101-a.mp4", "20260101-a.mp4", False, 1),
+                SynologyEntry("/root/arbitrary/20260102-b.mov", "20260102-b.mov", False, 2),
+            ],
+            "/root/2026": [SynologyEntry("/root/2026/09", "09", True)],
+            "/root/2026/09": [SynologyEntry("/root/2026/09/주일예배", "주일예배", True)],
+            "/root/2026/09/주일예배": [
+                SynologyEntry("/root/2026/09/주일예배/20260103-c.m4v", "20260103-c.m4v", False, 3),
+            ],
+        }
+
+    def __enter__(self) -> "_FakeSynologyClient":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def list_directory(self, path: str, *, offset: int = 0, limit: int = 500) -> tuple[list[SynologyEntry], int]:
+        self.list_calls += 1
+        entries = self.entries[path]
+        return entries[offset:offset + limit], len(entries)
+
+
+def test_synology_snapshot_pagination_filters_and_selected_import(
+    mysql_session: Session, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    mysql_session.add(Video(
+        church_id=scenario.church.id,
+        source_type="synology",
+        source_ref="arbitrary/20260101-a.mp4",
+        title="duplicate",
+        recorded_at=datetime.now(UTC),
+    ))
+    mysql_session.commit()
+    client = _FakeSynologyClient()
+    service = SynologyImportService(mysql_session)
+    service.configured = lambda: True  # type: ignore[method-assign]
+    service._root = lambda: "/root"  # type: ignore[method-assign]
+    service._client = lambda: client  # type: ignore[method-assign]
+
+    token, page, summary, folders, selectable = service.preview(
+        scenario.church.id, offset=0, limit=1
+    )
+    assert summary == {
+        "total": 3, "filtered_total": 3, "new": 2, "already_imported": 1,
+        "needs_review": 0, "ready": 2, "duplicate": 1, "warning": 0,
+    }
+    assert len(page) == 1
+    assert folders == ["2026", "2026/09", "2026/09/주일예배", "arbitrary"]
+    assert selectable == ["arbitrary/20260102-b.mov", "2026/09/주일예배/20260103-c.m4v"]
+    initial_calls = client.list_calls
+
+    _, filtered, filtered_summary, _, filtered_refs = service.preview(
+        scenario.church.id,
+        snapshot_token=token,
+        offset=0,
+        limit=100,
+        status_filter="new",
+        folder="2026/09",
+    )
+    assert client.list_calls == initial_calls
+    assert len(filtered) == 1
+    assert filtered_summary["filtered_total"] == 1
+    assert filtered_refs == ["2026/09/주일예배/20260103-c.m4v"]
+
+    _, next_page, _, _, _ = service.preview(
+        scenario.church.id, snapshot_token=token, offset=1, limit=1
+    )
+    assert len(next_page) == 1
+    assert client.list_calls == initial_calls
+    with pytest.raises(RequestValidationError):
+        service.preview(scenario.church.id, snapshot_token="missing-snapshot-token", offset=0, limit=1)
+
+    result = service.import_candidates(
+        scenario.church.id, token, ["arbitrary/20260102-b.mov", "outside/path.mp4"]
+    )
+    assert result["imported_count"] == 1
+    assert result["failed_count"] == 1
+    assert result["items"][1]["error_code"] == "candidate_not_in_snapshot"
+    retry = service.import_candidates(scenario.church.id, token, ["arbitrary/20260102-b.mov"])
+    assert retry["already_imported_count"] == 1
+
+
+def test_synology_bulk_import_is_bounded_idempotent_and_unpublished(
+    mysql_session: Session, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    token = uuid4().hex
+    refs = [
+        f"batch/2026{((index - 1) // 28) + 1:02d}{((index - 1) % 28) + 1:02d}-video.mp4"
+        for index in range(1, 101)
+    ]
+    _snapshots[token] = Snapshot(scenario.church.id, tuple(infer_candidate(ref, file_size=index + 1) for index, ref in enumerate(refs)))
+    service = SynologyImportService(mysql_session)
+    result = service.import_candidates(scenario.church.id, token, refs)
+    assert result["requested_count"] == 100
+    assert result["imported_count"] == 100
+    assert result["failed_count"] == 0
+    videos = [service.videos.get_by_source_for_church(scenario.church.id, VideoSourceType.SYNOLOGY, ref) for ref in refs]
+    assert all(video is not None and video.is_published is False and video.category_id is None and video.collection_id is None for video in videos)
+    retry = service.import_candidates(scenario.church.id, token, refs)
+    assert retry["imported_count"] == 0
+    assert retry["already_imported_count"] == 100
+    with pytest.raises(RequestValidationError):
+        service.import_candidates(scenario.church.id, token, refs + ["batch/20260411-extra.mp4"] * (MAX_BATCH_SIZE - len(refs) + 1))
+
+
+def test_synology_preview_review_filters_and_soft_duplicates(
+    mysql_session: Session, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    token = uuid4().hex
+    duplicate_one = infer_candidate("folder/20260104-message.mp4", file_size=12)
+    duplicate_two = infer_candidate("folder/other/20260104-message.mp4", file_size=12)
+    missing_date = infer_candidate("unknown/video.mp4", file_size=5)
+    _snapshots[token] = Snapshot(scenario.church.id, (duplicate_one, duplicate_two, missing_date))
+    service = SynologyImportService(mysql_session)
+    _, review_page, review_summary, _, _ = service.preview(scenario.church.id, snapshot_token=token, offset=0, limit=100, status_filter="needs_review")
+    assert len(review_page) == 3
+    assert review_summary["needs_review"] == 3
+    assert all(item["needs_review"] for item in review_page)
+    assert "possible_duplicate" in review_page[0]["review_reasons"]
+    missing_result = service.import_candidates(scenario.church.id, token, [missing_date.source_ref])
+    assert missing_result["needs_review_count"] == 1
+    assert missing_result["imported_count"] == 0
+
+
+def test_synology_bulk_import_is_partial_failure_safe_and_snapshot_errors_are_explicit(
+    mysql_session: Session, video_scenario: VideoScenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario = video_scenario
+    token = uuid4().hex
+    first = infer_candidate("partial/20260104-first.mp4", file_size=10)
+    second = infer_candidate("partial/20260105-second.mp4", file_size=11)
+    _snapshots[token] = Snapshot(scenario.church.id, (first, second))
+    service = SynologyImportService(mysql_session)
+    original_add = service.videos.add_video
+    calls = 0
+
+    def fail_once(video: Video) -> Video:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("expected item failure")
+        return original_add(video)
+
+    monkeypatch.setattr(service.videos, "add_video", fail_once)
+    result = service.import_candidates(scenario.church.id, token, [first.source_ref, second.source_ref])
+    assert result["failed_count"] == 1
+    assert result["imported_count"] == 1
+    assert result["items"][0]["error_code"] == "import_failed"
+    assert result["items"][1]["status"] == "imported"
+    with pytest.raises(RequestValidationError, match="snapshot_not_found"):
+        service.import_candidates(scenario.church.id, "missing-snapshot-token", [first.source_ref])
+
+
+def test_synology_import_endpoint_requires_manage_permission(
+    client: TestClient, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    token = uuid4().hex
+    candidate = infer_candidate("permission/20260106-video.mp4", file_size=10)
+    _snapshots[token] = Snapshot(scenario.church.id, (candidate,))
+    response = client.post(
+        f"{videos_url(scenario)}/synology/import",
+        headers=scenario.headers(scenario.vod_user),
+        json={"snapshot_token": token, "source_refs": [candidate.source_ref]},
+    )
+    assert response.status_code == 403
+
+
+def test_unpublished_video_security_review_and_bulk_publish(
+    client: TestClient, mysql_session: Session, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    unpublished = create_video(
+        client, scenario, title="Review video", source_type="synology", source_ref="review/private.mp4",
+        recorded_at="2026-01-06T10:00:00Z", is_published=False,
+    )
+    videos = videos_url(scenario)
+    assert all(item["id"] != unpublished["id"] for item in client.get(videos, headers=scenario.headers(scenario.vod_user)).json())
+    assert client.get(f"{videos}?published=false", headers=scenario.headers(scenario.vod_user)).status_code == 403
+    assert client.get(f"{videos}/{unpublished['id']}", headers=scenario.headers(scenario.vod_user)).status_code == 404
+    assert client.post(f"{videos}/{unpublished['id']}/playback-session", headers=scenario.headers(scenario.vod_user)).status_code == 404
+    manager_review = client.get(f"{videos}/review?status=unpublished&offset=0&limit=100", headers=scenario.headers(scenario.manager))
+    assert manager_review.status_code == 200
+    assert manager_review.json()["unpublished_count"] >= 1
+    assert any(item["id"] == unpublished["id"] for item in manager_review.json()["items"])
+    assert client.get(f"{videos}/{unpublished['id']}", headers=scenario.headers(scenario.manager)).status_code == 200
+    assert client.post(f"{videos}/{unpublished['id']}/playback-session", headers=scenario.headers(scenario.manager)).status_code == 200
+    assert client.patch(f"{videos}/{unpublished['id']}", headers=scenario.headers(scenario.vod_user), json={"title": "blocked"}).status_code == 403
+    assert client.patch(f"{videos}/{unpublished['id']}", headers=scenario.headers(scenario.manager), json={"title": "Reviewed", "category_id": None, "collection_id": None}).status_code == 200
+    assert client.post(f"{videos}/bulk-publish", headers=scenario.headers(scenario.vod_user), json={"video_ids": [unpublished["id"]]}).status_code == 403
+    published = client.post(f"{videos}/bulk-publish", headers=scenario.headers(scenario.manager), json={"video_ids": [unpublished["id"]]})
+    assert published.status_code == 200
+    assert published.json()["published_count"] == 1
+    retried = client.post(f"{videos}/bulk-publish", headers=scenario.headers(scenario.manager), json={"video_ids": [unpublished["id"]]})
+    assert retried.json()["published_count"] == 0
+    assert retried.json()["already_published_count"] == 1
+    foreign = Video(church_id=scenario.other_church.id, source_type="synology", source_ref="foreign/private.mp4", title="foreign", recorded_at=datetime.now(UTC), is_published=False)
+    mysql_session.add(foreign); mysql_session.commit()
+    cross = client.post(f"{videos}/bulk-publish", headers=scenario.headers(scenario.manager), json={"video_ids": [foreign.id]})
+    assert cross.status_code == 200
+    assert cross.json()["failed_count"] == 1
+    assert client.post(f"{videos}/bulk-publish", headers=scenario.headers(scenario.manager), json={"video_ids": list(range(1, 202))}).status_code == 422
+
+
+def test_viewer_playback_token_is_revoked_when_video_becomes_unpublished(
+    client: TestClient, video_scenario: VideoScenario
+) -> None:
+    scenario = video_scenario
+    video = create_video(
+        client, scenario, title="Token video", source_type="synology", source_ref="review/token.mp4",
+        recorded_at="2026-01-07T10:00:00Z",
+    )
+    issued = client.post(f"{videos_url(scenario)}/{video['id']}/playback-session", headers=scenario.headers(scenario.vod_user)).json()
+    assert client.patch(f"{videos_url(scenario)}/{video['id']}", headers=scenario.headers(scenario.manager), json={"is_published": False}).status_code == 200
+    response = client.get(issued["playback_url"], headers={"X-Playback-Token": issued["playback_token"]})
+    assert response.status_code == 404
 
 
 def test_video_sources_sort_filters_archive_and_validation(client: TestClient, video_scenario: VideoScenario) -> None:

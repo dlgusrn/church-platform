@@ -138,6 +138,38 @@ void main() {
     expect(find.text('예배시간 안내'), findsOneWidget);
     expect(find.text('주일 · 모든 성도를 위한 예배'), findsOneWidget);
   });
+
+  testWidgets('홈은 일반 viewport에서 본문을 스크롤하지 않는다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _pumpHome(tester, null);
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.maxScrollExtent, 0);
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('홈은 작은 viewport에서 본문을 스크롤한다', (tester) async {
+    tester.view.physicalSize = const Size(320, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _pumpHome(tester, null);
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpHome(WidgetTester tester, LiveBroadcast? live) async {

@@ -38,3 +38,13 @@ def get_db() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+def get_playback_session() -> Session:
+    """Create a session owned explicitly by the playback authorization phase.
+
+    Playback closes this session before returning its StreamingResponse; it is
+    intentionally not a yield dependency because request-scoped cleanup occurs
+    only after a streaming body has finished.
+    """
+    return get_session_factory()()

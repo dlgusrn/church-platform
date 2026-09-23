@@ -13,6 +13,7 @@ import 'package:church_app/features/church/data/api_membership_repository.dart';
 import 'package:church_app/features/church/data/membership_repository.dart';
 import 'package:church_app/features/home/data/api_home_repository.dart';
 import 'package:church_app/features/home/domain/home_models.dart';
+import 'package:church_app/features/video/data/api_video_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -283,6 +284,25 @@ void main() {
     expect(churches.map((item) => item.code), ['skygate', 'beer']);
     expect(pending.single.applicantName, '가입자');
     expect(pending.single.effectivePermissions, isEmpty);
+  });
+
+  test('Synology 재생 session은 header 전용 token과 고정 Backend URL을 분리한다', () async {
+    final transport = FakeHttpTransport([
+      jsonResponse(200, {
+        'type': 'synology',
+        'playback_url': '/api/v1/playback',
+        'playback_token': 'scoped-token',
+        'expires_at': '2026-09-23T12:15:00Z',
+      }),
+    ]);
+    final session = await ApiVideoRepository(
+      apiClient(transport, MemoryTokenStore()..accessToken = 'access'),
+    ).createPlaybackSession('1', '2');
+    expect(session.url.toString(), 'http://api.test:8000/api/v1/playback');
+    expect(session.url.query, isEmpty);
+    expect(session.playbackHeaders, {'X-Playback-Token': 'scoped-token'});
+    expect(transport.requests.single.uri.path, '/api/v1/churches/1/videos/2/playback-session');
+    expect(transport.requests.single.headers['Authorization'], 'Bearer access');
   });
 
   test('가입 신청 pending 응답과 중복 409를 처리한다', () async {

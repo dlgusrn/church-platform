@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -6,6 +6,7 @@ from app.core.exceptions import AuthenticationError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    create_video_playback_token,
     decode_token,
     hash_password,
     hash_refresh_token,
@@ -59,3 +60,23 @@ def test_token_type_is_enforced() -> None:
     )
     with pytest.raises(AuthenticationError):
         decode_token(token, "refresh", secret_key=SECRET, algorithm="HS256")
+
+
+def test_video_playback_token_is_scoped_and_not_an_access_token() -> None:
+    token = create_video_playback_token(7, 11, 13)
+    payload = decode_token(token, "video_playback")
+    assert payload["sub"] == "7"
+    assert payload["church_id"] == 11
+    assert payload["video_id"] == 13
+    assert payload["purpose"] == "video_playback"
+    assert payload["nonce"]
+    with pytest.raises(AuthenticationError):
+        decode_token(token, "access")
+
+
+def test_expired_video_playback_token_is_rejected() -> None:
+    token = create_video_playback_token(
+        7, 11, 13, expires_delta=timedelta(seconds=1), now=datetime.now(UTC) - timedelta(minutes=1)
+    )
+    with pytest.raises(AuthenticationError):
+        decode_token(token, "video_playback")

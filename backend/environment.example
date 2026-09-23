@@ -11,3 +11,4 @@ SYNOLOGY_BASE_URL=https://nas.example.com:5001
 SYNOLOGY_USERNAME=replace-with-service-account
 SYNOLOGY_PASSWORD=replace-with-secret
 SYNOLOGY_VIDEO_ROOT=/replace-with-video-root
+SYNOLOGY_ALLOW_INSECURE_TLS=false

@@ -44,6 +44,7 @@ router.include_router(
     prefix="/churches/{church_id}/videos",
     tags=["videos"],
 )
+router.include_router(videos.playback_router, prefix="", tags=["video-playback"])
 router.include_router(
     videos.categories_router,
     prefix="/churches/{church_id}/video-categories",

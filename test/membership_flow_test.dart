@@ -1,5 +1,6 @@
 import 'package:church_app/app/app_state.dart';
 import 'package:church_app/app/app_scope.dart';
+import 'package:church_app/app/app.dart';
 import 'package:church_app/core/auth/auth_repository.dart';
 import 'package:church_app/core/auth/mock_auth_repository.dart';
 import 'package:church_app/core/mock/mock_app_data_store.dart';
@@ -11,6 +12,7 @@ import 'package:church_app/features/church/data/membership_repository.dart';
 import 'package:church_app/features/church/data/mock_church_repository.dart';
 import 'package:church_app/features/church/data/mock_membership_repository.dart';
 import 'package:church_app/features/home/data/mock_home_repository.dart';
+import 'package:church_app/features/home/domain/home_models.dart';
 import 'package:church_app/features/live/data/mock_live_access_service.dart';
 import 'package:church_app/features/notices/data/mock_notice_repository.dart';
 import 'package:church_app/features/more/presentation/more_screen.dart';
@@ -18,16 +20,41 @@ import 'package:church_app/shared/models/user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-({AppState state, MockAppDataStore store}) createFixture() {
+class CountingHomeRepository extends MockHomeRepository {
+  int homeLoadCount = 0;
+
+  @override
+  Future<HomeContent> getHomeContent(
+    String churchId, {
+    bool includeSchedules = true,
+  }) {
+    homeLoadCount++;
+    return super.getHomeContent(churchId, includeSchedules: includeSchedules);
+  }
+}
+
+class RestoringMockAuthRepository extends MockAuthRepository {
+  RestoringMockAuthRepository(super.store, this.userId);
+
+  final String userId;
+
+  @override
+  Future<AppUser?> restoreSession() async => store.userById(userId);
+}
+
+({AppState state, MockAppDataStore store, CountingHomeRepository home})
+createFixture() {
   final store = MockAppDataStore();
+  final home = CountingHomeRepository();
   return (
     store: store,
+    home: home,
     state: AppState(
       authRepository: MockAuthRepository(store),
       churchRepository: MockChurchRepository(store),
       membershipRepository: MockMembershipRepository(store),
       roleRepository: MockRoleRepository(store),
-      homeRepository: MockHomeRepository(),
+      homeRepository: home,
       liveAccessService: MockLiveAccessService(),
       noticeRepository: MockNoticeRepository(),
     ),
@@ -54,6 +81,184 @@ void main() {
     expect(membership?.role, isNull);
     expect(membership?.effectivePermissions, isEmpty);
     expect(fixture.state.status, AppSessionStatus.approvalPending);
+    expect(fixture.home.homeLoadCount, 0);
+  });
+
+  test('pending 회원은 승인 여부를 확인해도 Home API를 호출하지 않는다', () async {
+    final fixture = createFixture();
+    await fixture.state.register(
+      name: '승인 대기 테스트',
+      loginId: 'pending-check@test.app',
+      password: '123456',
+    );
+    await fixture.state.requestJoin(
+      fixture.state.churches.first,
+      onboarding: true,
+    );
+
+    expect(
+      await fixture.state.checkPendingMembershipApproval(),
+      PendingMembershipCheckResult.pending,
+    );
+    expect(fixture.state.status, AppSessionStatus.approvalPending);
+    expect(fixture.state.activeMembership, isNull);
+    expect(fixture.home.homeLoadCount, 0);
+  });
+
+  test('승인된 pending 회원은 권한을 반영하고 Home으로 진입한다', () async {
+    final fixture = createFixture();
+    await fixture.state.register(
+      name: '승인 전환 테스트',
+      loginId: 'approved-check@test.app',
+      password: '123456',
+    );
+    final pending = await fixture.state.requestJoin(
+      fixture.state.churches.first,
+      onboarding: true,
+    );
+    await MockMembershipRepository(fixture.store).approve(
+      churchId: pending!.church.id,
+      membershipId: pending.id,
+      role: MockAppDataStore.memberRole,
+    );
+
+    expect(
+      await fixture.state.checkPendingMembershipApproval(),
+      PendingMembershipCheckResult.approved,
+    );
+    expect(fixture.state.status, AppSessionStatus.authenticated);
+    expect(fixture.state.activeMembership?.isApproved, isTrue);
+    expect(fixture.state.has(AppPermission.liveAccess), isTrue);
+    expect(fixture.state.has(AppPermission.vodView), isTrue);
+    expect(fixture.home.homeLoadCount, 1);
+    expect(
+      NavigationPolicy.available(fixture.state.effectivePermissions)
+          .map((item) => item.label),
+      ['홈', '영상', '더보기'],
+    );
+  });
+
+  testWidgets('승인 여부 확인은 pending 화면을 유지하다 승인 후 MainShell로 전환한다', (
+    tester,
+  ) async {
+    final fixture = createFixture();
+    await fixture.state.register(
+      name: '승인 화면 테스트',
+      loginId: 'approval-screen@test.app',
+      password: '123456',
+    );
+    final pending = await fixture.state.requestJoin(
+      fixture.state.churches.first,
+      onboarding: true,
+    );
+
+    await tester.pumpWidget(ChurchApp(appState: fixture.state));
+    expect(find.text('가입 신청이 완료되었습니다'), findsOneWidget);
+    expect(find.text('승인 여부 확인'), findsOneWidget);
+
+    await tester.tap(find.text('승인 여부 확인'));
+    await tester.pumpAndSettle();
+    expect(find.text('아직 승인 대기 중입니다. 관리자 승인 후 다시 확인해주세요.'), findsOneWidget);
+    expect(fixture.state.status, AppSessionStatus.approvalPending);
+    expect(fixture.home.homeLoadCount, 0);
+
+    await MockMembershipRepository(fixture.store).approve(
+      churchId: pending!.church.id,
+      membershipId: pending.id,
+      role: MockAppDataStore.memberRole,
+    );
+    await tester.tap(find.text('승인 여부 확인'));
+    await tester.pumpAndSettle();
+
+    expect(fixture.state.status, AppSessionStatus.authenticated);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('홈'), findsOneWidget);
+    expect(find.text('영상'), findsOneWidget);
+    expect(find.text('더보기'), findsOneWidget);
+  });
+
+  test('거절된 pending 회원은 가입 현황 화면으로 이동한다', () async {
+    final fixture = createFixture();
+    await fixture.state.register(
+      name: '거절 전환 테스트',
+      loginId: 'rejected-check@test.app',
+      password: '123456',
+    );
+    final pending = await fixture.state.requestJoin(
+      fixture.state.churches.first,
+      onboarding: true,
+    );
+    await MockMembershipRepository(fixture.store)
+        .reject(churchId: pending!.church.id, membershipId: pending.id);
+
+    expect(
+      await fixture.state.checkPendingMembershipApproval(),
+      PendingMembershipCheckResult.rejected,
+    );
+    expect(fixture.state.status, AppSessionStatus.membershipStatus);
+    expect(fixture.state.activeMembership, isNull);
+    expect(fixture.home.homeLoadCount, 0);
+  });
+
+  test('approved 교회와 다른 교회의 pending 신청은 기존 Home 진입을 막지 않는다', () async {
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-b')!;
+    final pending = ChurchMembership(
+      id: 'membership-b-pending',
+      userId: user.id,
+      church: fixture.store.churches.last,
+      status: MembershipStatus.pending,
+      requestedAt: DateTime(2026, 9, 23),
+    );
+    fixture.store.replaceUser(
+      user.copyWith(memberships: [...user.memberships, pending]),
+    );
+
+    await fixture.state.signIn(
+      loginId: 'member@church.app',
+      password: 'test1234',
+    );
+
+    expect(fixture.state.status, AppSessionStatus.authenticated);
+    expect(fixture.state.activeMembership?.church.id, 'sky-gate');
+    expect(fixture.home.homeLoadCount, 1);
+  });
+
+  test('세션 복구 시 pending membership만 있으면 승인 대기 화면에 머문다', () async {
+    final store = MockAppDataStore();
+    const userId = 'restoring-pending-user';
+    final pendingUser = AppUser(
+      id: userId,
+      name: '세션 복구 대기 회원',
+      loginId: 'restore-pending@test.app',
+      memberships: [
+        ChurchMembership(
+          id: 'restoring-pending-membership',
+          userId: userId,
+          church: store.churches.first,
+          status: MembershipStatus.pending,
+          requestedAt: DateTime(2026, 9, 23),
+        ),
+      ],
+    );
+    store.users.add(pendingUser);
+    final home = CountingHomeRepository();
+    final state = AppState(
+      authRepository: RestoringMockAuthRepository(store, userId),
+      churchRepository: MockChurchRepository(store),
+      membershipRepository: MockMembershipRepository(store),
+      roleRepository: MockRoleRepository(store),
+      homeRepository: home,
+      liveAccessService: MockLiveAccessService(),
+      noticeRepository: MockNoticeRepository(),
+    );
+
+    await state.restoreSession();
+
+    expect(state.status, AppSessionStatus.approvalPending);
+    expect(state.activeMembership, isNull);
+    expect(state.lastRequestedMembership?.id, 'restoring-pending-membership');
+    expect(home.homeLoadCount, 0);
   });
 
   test('Case 2: pending 또는 approved 교회에는 중복 신청할 수 없다', () async {
@@ -315,6 +520,60 @@ void main() {
     await tester.pump();
     expect(fixture.state.status, AppSessionStatus.signedOut);
     expect(find.text('signed out'), findsOneWidget);
+  });
+
+  testWidgets('더보기는 일반 viewport에서 본문을 스크롤하지 않는다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-b')!;
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = user.approvedMemberships.single
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: const MaterialApp(home: MoreScreen()),
+      ),
+    );
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.maxScrollExtent, 0);
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('더보기는 작은 viewport에서 본문을 스크롤한다', (tester) async {
+    tester.view.physicalSize = const Size(320, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = createFixture();
+    final user = fixture.store.userById('user-b')!;
+    fixture.state
+      ..currentUser = user
+      ..activeMembership = user.approvedMemberships.single
+      ..status = AppSessionStatus.authenticated;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: fixture.state,
+        child: const MaterialApp(home: MoreScreen()),
+      ),
+    );
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    await tester.drag(find.byType(Scrollable), const Offset(0, -120));
+    await tester.pump();
+    expect(scrollable.position.pixels, greaterThan(0));
+    expect(tester.takeException(), isNull);
   });
 
   test('Case 6: Role Permission에 추가와 제외를 반영한다', () async {

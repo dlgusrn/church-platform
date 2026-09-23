@@ -74,6 +74,26 @@ set +a
 ignore합니다. 현재 실행 환경 정책 때문에 `.env.example` 대신 `environment.example`을
 사용합니다.
 
+### Local playback fixture (development only)
+
+Stage 9-5의 synthetic fixture는 `backend/tests/fixtures/sample.mp4`이며 Git에 추가하지
+않습니다. `APP_ENV=development`에서만 `LOCAL_PLAYBACK_UPSTREAM_URL`이 허용되고,
+production에서는 설정 자체가 거부됩니다. 먼저 별도 터미널에서 고정 fixture server를 실행합니다.
+
+```bash
+python -m tools.local_video_range_server --port 8099
+```
+
+그 다음 FastAPI 개발 프로세스를 아래 development-only 환경변수로 시작하거나 환경변수를
+다시 읽도록 재시작합니다. 이 adapter는
+`development/local-playback-test.mp4`인 테스트 row 하나만 `/sample.mp4`로 매핑하며,
+일반 Synology row와 production Synology client에는 영향을 주지 않습니다.
+
+```bash
+export LOCAL_PLAYBACK_UPSTREAM_URL=http://127.0.0.1:8099
+python -m tools.seed_local_playback_video --church-code skygate
+```
+
 ## 4. Migration
 
 개발 DB와 테스트 DB 모두 동일한 Migration을 적용합니다.

@@ -31,6 +31,22 @@ class VideoRepository:
             statement = statement.where(Video.is_published.is_(published))
         return list(self.session.scalars(statement.order_by(Video.recorded_at.desc(), Video.id.desc())).all())
 
+    def list_page_for_church(
+        self,
+        church_id: int,
+        *,
+        published: bool | None,
+        offset: int,
+        limit: int,
+    ) -> tuple[list[Video], int]:
+        conditions = [Video.church_id == church_id]
+        if published is not None:
+            conditions.append(Video.is_published.is_(published))
+        statement = select(Video).where(*conditions)
+        total = int(self.session.scalar(select(func.count(Video.id)).where(*conditions)) or 0)
+        items = list(self.session.scalars(statement.order_by(Video.recorded_at.desc(), Video.id.desc()).offset(offset).limit(limit)).all())
+        return items, total
+
     def get_for_church(self, video_id: int, church_id: int, *, for_update: bool = False) -> Video | None:
         statement = select(Video).where(Video.id == video_id, Video.church_id == church_id)
         if for_update:

@@ -5,17 +5,31 @@ import re
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
 
+# These are intentionally narrow. They cover date forms observed during the
+# NAS inventory and do not try to derive dates from arbitrary digits.
+_DATE_VALUE = r"(?:(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])|\d{6})"
+DATE_PREFIX_RE = re.compile(rf"^(?P<date>{_DATE_VALUE})(?:[ _.-]+|(?=[^0-9])|$)")
+DATE_SUFFIX_RE = re.compile(rf"(?:[ _.-]+)(?P<date>{_DATE_VALUE})$")
+_KNOWN_SUFFIX_RE = re.compile(
+    r"(?:[ _.-]+)(?:copy|edit|edited|final|encode(?:d)?|h[ ._-]?26[45]|hevc|avc|"
+    r"1080p|720p|4k|fhd|uhd)(?:[ _.-]*\d+)?$",
+    re.IGNORECASE,
+)
+_YEAR_RE = re.compile(r"(?:19|20)\d{2}(?:년)?$")
+_MONTH_RE = re.compile(r"(?:0?[1-9]|1[0-2])(?:월)?$")
+
+
 @dataclass(frozen=True)
 class FolderInferenceRule:
+    """Retained as a compatibility type; bulk import does not infer taxonomy."""
+
     token: str
     category: str | None = None
     confidence: str = "medium"
 
-DEFAULT_FOLDER_RULES = (
-    FolderInferenceRule("설교", "예배"),
-    FolderInferenceRule("행사", "행사"),
-    FolderInferenceRule("선교", "해외선교"),
-)
+
+DEFAULT_FOLDER_RULES: tuple[FolderInferenceRule, ...] = ()
+
 
 @dataclass(frozen=True)
 class SynologyVideoCandidate:
@@ -23,36 +37,88 @@ class SynologyVideoCandidate:
     relative_path: str
     filename: str
     file_size: int
+    extension: str
     inferred_title: str
     inferred_recorded_at: datetime | None
-    category_suggestion: str | None
-    collection_suggestion: str | None
+    category_suggestion: str | None = None
+    collection_suggestion: str | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    review_reasons: tuple[str, ...] = field(default_factory=tuple)
+
 
 def is_video_path(path: str) -> bool:
     name = PurePosixPath(path).name
-    return not name.startswith(".") and name.lower() not in {"thumbs.db", ".ds_store"} and PurePosixPath(name).suffix.lower() in VIDEO_EXTENSIONS
+    return (
+        not name.startswith(".")
+        and name.lower() not in {"thumbs.db", ".ds_store"}
+        and PurePosixPath(name).suffix.lower() in VIDEO_EXTENSIONS
+    )
 
-def infer_candidate(relative_path: str, *, file_size: int = 0, rules: tuple[FolderInferenceRule, ...] = DEFAULT_FOLDER_RULES) -> SynologyVideoCandidate:
+
+def _parse_date(value: str) -> datetime | None:
+    try:
+        return datetime.strptime(value, "%Y%m%d" if len(value) == 8 else "%y%m%d").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def normalize_title(stem: str) -> tuple[str, bool]:
+    """Return a conservatively cleaned title and whether fallback was required."""
+    value = stem.strip()
+    prefix = DATE_PREFIX_RE.match(value)
+    if prefix:
+        value = value[prefix.end():]
+    value = DATE_SUFFIX_RE.sub("", value)
+    while True:
+        cleaned = _KNOWN_SUFFIX_RE.sub("", value)
+        if cleaned == value:
+            break
+        value = cleaned
+    value = value.strip(" _.-")
+    if not value:
+        return stem, True
+    return value, False
+
+
+def infer_candidate(
+    relative_path: str,
+    *,
+    file_size: int = 0,
+    rules: tuple[FolderInferenceRule, ...] = DEFAULT_FOLDER_RULES,
+) -> SynologyVideoCandidate:
+    del rules  # Folder names do not create application taxonomy.
     path = PurePosixPath(relative_path)
     if path.is_absolute() or ".." in path.parts or not is_video_path(relative_path):
         raise ValueError("invalid video path")
-    parts = path.parts
+
     stem = path.stem
-    # Discovery above deliberately ignores folder taxonomy. Rules only suggest app metadata.
-    category = next((rule.category for rule in rules if any(rule.token in part for part in parts)), None)
-    match = re.match(r"(?:(\d{8})|(\d{6}))", stem)
-    date = None; warnings: list[str] = []
-    if match:
-        raw = match.group(1) or match.group(2)
-        try: date = datetime.strptime(raw, "%Y%m%d" if len(raw) == 8 else "%y%m%d").replace(tzinfo=UTC)
-        except ValueError: warnings.append("filename date is invalid")
-    suffix = stem[match.end():] if match else stem
-    worship = "낮예배" if "낮" in suffix else "밤예배" if "밤" in suffix else "송구영신예배" if "송구영신" in suffix else None
-    title = f"{date.year:04d}년 {date.month:02d}월 {date.day:02d}일 {worship}" if date and worship else stem
-    folders = [p for p in parts[:-1] if not re.fullmatch(r"\d{2,4}년?|\d{1,2}", p)]
-    # A generic nested folder is only a low-confidence suggestion for event/mission;
-    # unknown trees remain unresolved rather than becoming app taxonomy.
-    collection = folders[-1] if category in {"행사", "해외선교"} and folders and not re.fullmatch(r"\d{2,4}년?|\d{1,2}", folders[-1]) else None
+    date_match = DATE_PREFIX_RE.match(stem) or DATE_SUFFIX_RE.search(stem)
+    recorded_at = _parse_date(date_match.group("date")) if date_match else None
+    title, used_fallback = normalize_title(stem)
+
+    reasons: list[str] = []
+    if recorded_at is None:
+        reasons.append("missing_recorded_at")
+        directories = path.parts[:-1]
+        has_year_month = any(_YEAR_RE.fullmatch(part) for part in directories) and any(
+            _MONTH_RE.fullmatch(part) for part in directories
+        )
+        if not has_year_month:
+            reasons.append("unknown_structure")
+    if used_fallback:
+        reasons.append("ambiguous_title")
+
     normalized = path.as_posix()
-    return SynologyVideoCandidate(normalized, normalized, path.name, file_size, title, date, category, collection, tuple(warnings))
+    return SynologyVideoCandidate(
+        source_ref=normalized,
+        relative_path=normalized,
+        filename=path.name,
+        file_size=file_size,
+        extension=path.suffix.lower().lstrip("."),
+        inferred_title=title,
+        inferred_recorded_at=recorded_at,
+        category_suggestion=None,
+        collection_suggestion=None,
+        warnings=tuple(reasons),
+        review_reasons=tuple(reasons),
+    )

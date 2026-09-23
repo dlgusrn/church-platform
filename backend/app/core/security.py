@@ -10,7 +10,7 @@ from pwdlib import PasswordHash
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError
 
-TokenType = Literal["access", "refresh"]
+TokenType = Literal["access", "refresh", "video_playback"]
 _password_hash = PasswordHash.recommended()
 
 
@@ -76,6 +76,32 @@ def create_refresh_token(
     settings = get_settings() if expires_delta is None else None
     expiry = expires_delta or timedelta(days=settings.jwt_refresh_token_expire_days)
     return _create_token(subject, "refresh", expiry, secret_key=secret_key, algorithm=algorithm)
+
+
+def create_video_playback_token(
+    user_id: int,
+    church_id: int,
+    video_id: int,
+    *,
+    expires_delta: timedelta | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Issue a short-lived, backend-only scoped token for a media stream."""
+    settings = get_settings()
+    expiry = expires_delta or timedelta(minutes=settings.video_playback_token_expire_minutes)
+    issued_at = now or datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "type": "video_playback",
+        "purpose": "video_playback",
+        "church_id": church_id,
+        "video_id": video_id,
+        "iat": issued_at,
+        "exp": issued_at + expiry,
+        "jti": str(uuid4()),
+        "nonce": str(uuid4()),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(

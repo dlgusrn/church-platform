@@ -5,6 +5,7 @@ import '../../../app/app_scope.dart';
 import '../../../core/network/api_config.dart';
 import '../../../core/permission/app_permission.dart';
 import '../../../core/theme/app_tokens.dart';
+import '../../../shared/widgets/overflow_only_scroll_physics.dart';
 import '../../church/presentation/membership_admin_screen.dart';
 import '../../church/presentation/membership_status_screen.dart';
 import '../../church/presentation/membership_status_view.dart';
@@ -14,6 +15,7 @@ import '../../notices/presentation/notices_screen.dart';
 import '../../popup_notices/presentation/popup_notice_admin_screen.dart';
 import '../../video/presentation/youtube_registration_screen.dart';
 import '../../video/presentation/synology_import_screen.dart';
+import '../../video/presentation/video_review_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -42,6 +44,7 @@ class MoreScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('더보기')),
       body: ListView(
+        physics: const OverflowOnlyScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.pageHorizontal,
           AppSpacing.md,
@@ -154,6 +157,17 @@ class MoreScreen extends StatelessWidget {
                                     MaterialPageRoute<void>(
                                       builder: (_) =>
                                           const YouTubeRegistrationScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              ListTile(
+                                title: const Text('영상 검수 및 공개'),
+                                onTap: () {
+                                  Navigator.pop(sheetContext);
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const VideoReviewScreen(),
                                     ),
                                   );
                                 },

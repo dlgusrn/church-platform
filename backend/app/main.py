@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,11 +15,20 @@ from app.core.exceptions import (
     RequestValidationError,
     PopupNoticeOverlapError,
 )
+from app.services.video_sources.synology.client import close_shared_playback_connections
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        await close_shared_playback_connections()
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    application = FastAPI(title=settings.app_name, version="1.0.0")
+    application = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 
     if settings.cors_origin_list:
         application.add_middleware(

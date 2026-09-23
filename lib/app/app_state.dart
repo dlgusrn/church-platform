@@ -31,6 +31,14 @@ enum AppSessionStatus {
   authenticated,
 }
 
+enum PendingMembershipCheckResult {
+  pending,
+  approved,
+  rejected,
+  unavailable,
+  error,
+}
+
 class AppState extends ChangeNotifier {
   AppState({
     required this.authRepository,
@@ -243,13 +251,47 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> continueFromApproval() async {
-    final membership = lastRequestedMembership;
-    if (membership == null) return;
-    previewMembership = membership;
-    activeMembership = null;
-    status = AppSessionStatus.authenticated;
-    await _loadHome(membership);
+  Future<PendingMembershipCheckResult> checkPendingMembershipApproval() async {
+    final requested = lastRequestedMembership;
+    if (requested == null) return PendingMembershipCheckResult.unavailable;
+
+    membershipError = null;
+    try {
+      // The membership response is the source of truth here. A pending
+      // membership must never become an active church context merely so the
+      // user can leave the confirmation screen.
+      await refreshCurrentUser();
+      final membership = currentUser?.memberships
+          .where((item) => item.id == requested.id)
+          .firstOrNull;
+      if (membership == null) {
+        await _routeAuthenticatedUser(currentUser!);
+        notifyListeners();
+        return PendingMembershipCheckResult.unavailable;
+      }
+
+      lastRequestedMembership = membership;
+      switch (membership.status) {
+        case MembershipStatus.pending:
+          activeMembership = null;
+          previewMembership = null;
+          status = AppSessionStatus.approvalPending;
+          notifyListeners();
+          return PendingMembershipCheckResult.pending;
+        case MembershipStatus.approved:
+          await activateChurch(membership);
+          return PendingMembershipCheckResult.approved;
+        case MembershipStatus.rejected:
+          _clearChurchContext();
+          await _routeAuthenticatedUser(currentUser!);
+          notifyListeners();
+          return PendingMembershipCheckResult.rejected;
+      }
+    } catch (error) {
+      membershipError = _message(error);
+      notifyListeners();
+      return PendingMembershipCheckResult.error;
+    }
   }
 
   Future<void> activateChurch(ChurchMembership membership) async {

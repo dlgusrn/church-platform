@@ -23,6 +23,19 @@ class VideoItem {
   final bool isPublished;
 }
 
+class VideoPlaybackSession {
+  const VideoPlaybackSession({
+    required this.url,
+    required this.token,
+    required this.expiresAt,
+  });
+  final Uri url;
+  final String token;
+  final DateTime expiresAt;
+
+  Map<String, String> get playbackHeaders => {'X-Playback-Token': token};
+}
+
 class VideoCategory {
   const VideoCategory({
     required this.id,

@@ -15,6 +15,44 @@ class ApiVideoRepository implements VideoRepository {
   Future<VideoItem> getVideo(String churchId, String videoId) =>
       _one('/api/v1/churches/$churchId/videos/$videoId', _video);
   @override
+  Future<VideoItem> updateVideo(
+    String churchId,
+    String videoId,
+    Map<String, dynamic> request,
+  ) => _one(
+    '/api/v1/churches/$churchId/videos/$videoId',
+    _video,
+    method: 'PATCH',
+    body: request,
+  );
+  @override
+  Future<VideoPlaybackSession> createPlaybackSession(
+    String churchId,
+    String videoId,
+  ) async {
+    try {
+      final value = _map(
+        await client.post(
+          '/api/v1/churches/$churchId/videos/$videoId/playback-session',
+        ),
+      );
+      final path = _string(value, 'playback_url');
+      final token = _string(value, 'playback_token');
+      final uri = client.baseUri.resolve(path);
+      if (path.isEmpty || token.isEmpty || uri.host.isEmpty) {
+        throw const VideoDataException('재생 주소 형식이 올바르지 않습니다.');
+      }
+      return VideoPlaybackSession(
+        url: uri,
+        token: token,
+        expiresAt: _date(value['expires_at']),
+      );
+    } on ApiException catch (e) {
+      throw VideoDataException(e.message);
+    }
+  }
+
+  @override
   Future<List<VideoArchive>> getArchive(String churchId) =>
       _list('/api/v1/churches/$churchId/videos/archive', _archive);
   @override
@@ -53,20 +91,89 @@ class ApiVideoRepository implements VideoRepository {
     ),
   );
   @override
-  Future<Map<String, dynamic>> previewSynology(String churchId) async => _map(
-    await client.post('/api/v1/churches/$churchId/videos/synology/preview'),
-  );
+  Future<Map<String, dynamic>> previewSynology(
+    String churchId, {
+    String? snapshotToken,
+    int offset = 0,
+    int limit = 100,
+    String status = 'all',
+    String? folder,
+  }) async {
+    final query = <String>[
+      'offset=$offset',
+      'limit=$limit',
+      'status=${Uri.encodeQueryComponent(status)}',
+      if (snapshotToken != null)
+        'snapshot_token=${Uri.encodeQueryComponent(snapshotToken)}',
+      if (folder != null) 'folder=${Uri.encodeQueryComponent(folder)}',
+    ].join('&');
+    try {
+      return _map(
+        await client.post(
+          '/api/v1/churches/$churchId/videos/synology/preview?$query',
+        ),
+      );
+    } on ApiException catch (error) {
+      if (_isSnapshotError(error.message)) {
+        throw const SynologySnapshotExpiredException();
+      }
+      if (error.statusCode == 403) throw const SynologyPermissionException();
+      throw VideoDataException(error.message);
+    }
+  }
+
   @override
   Future<Map<String, dynamic>> importSynology(
     String churchId,
     String token,
     List<String> refs,
-  ) async => _map(
-    await client.post(
-      '/api/v1/churches/$churchId/videos/synology/import',
-      body: {'snapshot_token': token, 'source_refs': refs},
+  ) async {
+    try {
+      return _map(
+        await client.post(
+          '/api/v1/churches/$churchId/videos/synology/import',
+          body: {'snapshot_token': token, 'source_refs': refs},
+        ),
+      );
+    } on ApiException catch (error) {
+      if (_isSnapshotError(error.message)) {
+        throw const SynologySnapshotExpiredException();
+      }
+      if (error.message == 'candidate_not_in_snapshot') {
+        throw const SynologyCandidateInvalidException();
+      }
+      if (error.statusCode == 403) throw const SynologyPermissionException();
+      throw VideoDataException(error.message);
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> reviewVideos(
+    String churchId, {
+    String status = 'unpublished',
+    int offset = 0,
+    int limit = 100,
+  }) async => _map(
+    await client.get(
+      '/api/v1/churches/$churchId/videos/review?status=${Uri.encodeQueryComponent(status)}&offset=$offset&limit=$limit',
     ),
   );
+
+  @override
+  Future<Map<String, dynamic>> bulkPublish(
+    String churchId,
+    List<String> videoIds,
+  ) async => _map(
+    await client.post(
+      '/api/v1/churches/$churchId/videos/bulk-publish',
+      body: {'video_ids': videoIds.map(int.parse).toList(growable: false)},
+    ),
+  );
+
+  static bool _isSnapshotError(String message) =>
+      message == 'snapshot_not_found' ||
+      message == 'snapshot_expired_or_process_restarted' ||
+      message == 'Scan preview has expired';
 
   Future<List<T>> _list<T>(String path, T Function(dynamic) map) async {
     try {
@@ -79,9 +186,17 @@ class ApiVideoRepository implements VideoRepository {
     }
   }
 
-  Future<T> _one<T>(String path, T Function(dynamic) map) async {
+  Future<T> _one<T>(
+    String path,
+    T Function(dynamic) map, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+  }) async {
     try {
-      return map(await client.get(path));
+      return map(switch (method) {
+        'PATCH' => await client.patch(path, body: body),
+        _ => await client.get(path),
+      });
     } on ApiException catch (e) {
       throw VideoDataException(e.message);
     }
