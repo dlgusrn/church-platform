@@ -220,6 +220,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,
+            runSpacing: 10,
             children: [
               OutlinedButton(
                 onPressed: selectable.isEmpty
